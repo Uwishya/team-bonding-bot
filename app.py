@@ -15,8 +15,12 @@ load_dotenv()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
+# Track sent messages (prevent duplicates)
+sent_morning = set()
+sent_questions = set()
+
 # ============================================
-# EXPANDED QUESTIONS LIST (50+)
+# 50+ FUN QUESTIONS
 # ============================================
 
 QUESTIONS = [
@@ -69,10 +73,15 @@ QUESTIONS = [
     "What's something that makes you feel energized?",
     "What's a feedback you've received that helped you?",
     "What's something you're excited about for the future?",
+    "What's your favorite thing about your job?",
+    "What's something that made you feel proud this month?",
+    "What's a new food you tried and loved?",
+    "What's something you're really good at?",
+    "What's something you want to improve?",
 ]
 
 # ============================================
-# EXPANDED MORNING MESSAGES (30+)
+# 30+ MORNING MESSAGES
 # ============================================
 
 MORNING_MESSAGES = [
@@ -116,11 +125,10 @@ MORNING_MESSAGES = [
 user_answers = {}
 
 # ============================================
-# GET ALL @DREAMSTARTLABS.COM USERS WITH TIMEZONE
+# GET TARGET USERS (ONLY @dreamstartlabs.com)
 # ============================================
 
 def get_target_users():
-    """Get all users with @dreamstartlabs.com email and their timezone"""
     try:
         users = app.client.users_list()["members"]
         target_users = []
@@ -132,7 +140,7 @@ def get_target_users():
             try:
                 user_info = app.client.users_info(user=user["id"])
                 email = user_info["user"]["profile"].get("email", "")
-                tz = user.get("tz", "Africa/Kigali")  # Default to Rwanda time
+                tz = user.get("tz", "Africa/Kigali")
                 
                 if email.endswith("@dreamstartlabs.com"):
                     target_users.append({
@@ -142,36 +150,31 @@ def get_target_users():
                         "tz": tz
                     })
                     print(f"✅ INCLUDED: {user['name']} ({email}) - Timezone: {tz}")
-            except Exception as e:
-                print(f"❌ Error getting user {user.get('name')}: {e}")
+            except:
+                pass
         
         print(f"📊 Total team members: {len(target_users)}")
         return target_users
     except Exception as e:
-        print(f"❌ Error getting users: {e}")
+        print(f"❌ Error: {e}")
         return []
 
 # ============================================
-# SEND MESSAGE AT SPECIFIC LOCAL TIME
+# SCHEDULE MESSAGE AT LOCAL TIME
 # ============================================
 
 def schedule_message_for_user(user_id, user_tz, message, target_hour, target_minute=0):
-    """Schedule a message to be sent at a specific local time for the user"""
     try:
         user_timezone = pytz.timezone(user_tz)
         now_local = datetime.now(user_timezone)
         
-        # Set target time today
         target_time = now_local.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
         
-        # If target time already passed today, schedule for tomorrow
         if target_time < now_local:
             target_time += timedelta(days=1)
         
-        # Convert to UTC timestamp for Slack API
         utc_timestamp = int(target_time.astimezone(timezone.utc).timestamp())
         
-        # Schedule the message
         app.client.chat_scheduleMessage(
             channel=user_id,
             text=message,
@@ -183,22 +186,26 @@ def schedule_message_for_user(user_id, user_tz, message, target_hour, target_min
         return False
 
 # ============================================
-# MORNING GREETINGS (Daily at 9 AM local time)
+# MORNING GREETINGS (EVERY DAY)
 # ============================================
 
 def send_morning_greetings():
-    """Schedule morning greetings for each user at their local 9 AM"""
     try:
         target_users = get_target_users()
         message = random.choice(MORNING_MESSAGES)
+        today = datetime.now().date()
         count = 0
         
         for user in target_users:
+            user_id = user["id"]
+            
+            if f"{user_id}_{today}" in sent_morning:
+                continue
+            
             if schedule_message_for_user(user["id"], user["tz"], message, 9, 0):
+                sent_morning.add(f"{user_id}_{today}")
                 count += 1
-                print(f"✅ Scheduled morning greeting for {user['name']} at 9 AM {user['tz']}")
-            else:
-                print(f"❌ Failed to schedule for {user['name']}")
+                print(f"✅ Scheduled morning greeting for {user['name']}")
         
         print(f"✅ Scheduled morning greetings for {count} people")
         return count
@@ -207,14 +214,21 @@ def send_morning_greetings():
         return 0
 
 # ============================================
-# FUN QUESTIONS (Mon, Wed, Fri at 11 AM local time)
+# FUN QUESTIONS (ONLY MON, WED, FRI)
 # ============================================
 
 def send_questions_to_all():
-    """Schedule fun questions for each user at their local 11 AM"""
+    """Send fun questions ONLY on Monday, Wednesday, Friday"""
     try:
+        # Check if today is Monday (0), Wednesday (2), or Friday (4)
+        today_weekday = datetime.now().weekday()
+        if today_weekday not in [0, 2, 4]:
+            print(f"📅 Today is day {today_weekday}. No fun questions today (only Mon=0, Wed=2, Fri=4)")
+            return 0
+        
         target_users = get_target_users()
         question = random.choice(QUESTIONS)
+        today = datetime.now().date()
         count = 0
         
         for user in target_users:
@@ -222,20 +236,20 @@ def send_questions_to_all():
             user_name = user["name"]
             user_tz = user["tz"]
             
-            # Store question for this user (will be used when they reply)
+            if f"{user_id}_{today}" in sent_questions:
+                continue
+            
             user_answers[user_id] = {
                 "question": question,
                 "name": user_name
             }
             
-            # Schedule the question message
             message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer and I'll share it with the team!_"
             
             if schedule_message_for_user(user_id, user_tz, message, 11, 0):
+                sent_questions.add(f"{user_id}_{today}")
                 count += 1
-                print(f"✅ Scheduled fun question for {user_name} at 11 AM {user_tz}")
-            else:
-                print(f"❌ Failed to schedule for {user_name}")
+                print(f"✅ Scheduled fun question for {user_name}")
         
         print(f"✅ Scheduled questions for {count} people")
         return count
@@ -249,7 +263,6 @@ def send_questions_to_all():
 
 @app.event("message")
 def handle_answer(message, say):
-    """When user replies, post answer to watercooler"""
     user_id = message.get("user")
     
     if message.get("subtype") == "bot_message" or user_id == None:
@@ -277,19 +290,21 @@ def handle_answer(message, say):
             print(f"❌ Error posting answer: {e}")
 
 # ============================================
-# SCHEDULER (RUNS ONCE PER DAY TO SET UP MESSAGES)
+# SCHEDULER
 # ============================================
 
 def run_scheduler():
-    """Run scheduled tasks once per day to schedule messages for all users"""
-    # Schedule the morning greetings function to run at midnight UTC
-    # This function will then schedule messages for each user at their local 9 AM
-    schedule.every().day.at("00:01").do(send_morning_greetings)
+    def clear_trackers():
+        global sent_morning, sent_questions
+        sent_morning.clear()
+        sent_questions.clear()
+        print("🔄 Daily trackers cleared")
     
-    # Schedule fun questions on Monday, Wednesday, Friday
-    schedule.every().monday.at("00:02").do(send_questions_to_all)
-    schedule.every().wednesday.at("00:02").do(send_questions_to_all)
-    schedule.every().friday.at("00:02").do(send_questions_to_all)
+    schedule.every().day.at("00:01").do(clear_trackers)
+    schedule.every().day.at("00:02").do(send_morning_greetings)
+    schedule.every().monday.at("00:03").do(send_questions_to_all)
+    schedule.every().wednesday.at("00:03").do(send_questions_to_all)
+    schedule.every().friday.at("00:03").do(send_questions_to_all)
     
     print("⏰ Scheduler started!")
     print("   Morning greetings: Daily at each user's local 9 AM")
@@ -300,7 +315,7 @@ def run_scheduler():
         time.sleep(60)
 
 # ============================================
-# SLASH COMMANDS FOR MANUAL TESTING
+# SLASH COMMANDS
 # ============================================
 
 @app.command("/send-morning")
@@ -310,7 +325,7 @@ def test_morning(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"✅ Morning greetings scheduled for {count} people at their local 9 AM!"
+        text=f"✅ Morning greetings scheduled for {count} people!"
     )
 
 @app.command("/send-questions")
@@ -320,7 +335,7 @@ def test_questions(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"✅ Fun questions scheduled for {count} people at their local 11 AM!"
+        text=f"✅ Fun questions scheduled for {count} people!"
     )
 
 # ============================================
@@ -334,19 +349,18 @@ if __name__ == "__main__":
     print("   Target: @dreamstartlabs.com users only")
     print(f"   Watercooler channel: {WATERCOOLER}")
     
-    # Run scheduler once immediately to set up today's messages
     print("\n📅 Scheduling today's messages...")
     send_morning_greetings()
     
-    # Check if today is Mon, Wed, or Fri to schedule questions
+    # Only send questions on Mon, Wed, Fri
     today = datetime.now().weekday()
-    if today in [0, 2, 4]:  # Monday=0, Wednesday=2, Friday=4
+    if today in [0, 2, 4]:
         send_questions_to_all()
+    else:
+        print(f"📅 Today is day {today}. No fun questions today (only Mon=0, Wed=2, Fri=4)")
     
-    # Start scheduler in background
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
     
-    # Start Slack bot
     handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     handler.start()
