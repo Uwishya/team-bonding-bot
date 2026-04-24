@@ -1,5 +1,6 @@
 import os
 import random
+import schedule
 import time
 import threading
 import json
@@ -129,28 +130,10 @@ MORNING_MESSAGES = [
 
 user_answers = {}
 
-# YOUR INFO - ONLY YOU RECEIVE EVERYTHING
-YOUR_EMAIL = "uwishya@dreamstartlabs.com"
+# YOUR INFO - USING YOUR SLACK USER ID DIRECTLY
+YOUR_USER_ID = "U0A6W461UFN"
+YOUR_NAME = "Uwishya"
 YOUR_TIMEZONE = "Africa/Harare"
-
-def get_user_id_by_email(target_email):
-    """Find user ID by email address"""
-    try:
-        users = app.client.users_list()["members"]
-        for user in users:
-            if user["is_bot"] or user["deleted"]:
-                continue
-            try:
-                user_info = app.client.users_info(user=user["id"])
-                email = user_info["user"]["profile"].get("email", "")
-                if email == target_email:
-                    return user["id"], user["name"]
-            except:
-                pass
-        return None, None
-    except Exception as e:
-        print(f"Error: {e}")
-        return None, None
 
 def schedule_message_for_user(user_id, user_tz, message, target_hour, target_minute=0):
     try:
@@ -182,17 +165,10 @@ def send_morning_greetings():
         print(f"Morning already sent today ({today}). Skipping.")
         return 0
     
-    # FIND YOUR USER ID
-    your_user_id, your_name = get_user_id_by_email(YOUR_EMAIL)
-    
-    if not your_user_id:
-        print(f"Could not find user with email {YOUR_EMAIL}")
-        return 0
-    
-    print(f"Sending morning greeting to YOU ({your_name})...")
+    print(f"Sending morning greeting to YOU ({YOUR_NAME})...")
     message = random.choice(MORNING_MESSAGES)
     
-    if schedule_message_for_user(your_user_id, YOUR_TIMEZONE, message, 9, 0):
+    if schedule_message_for_user(YOUR_USER_ID, YOUR_TIMEZONE, message, 9, 0):
         print(f"✅ Morning greeting scheduled for YOU at 9:00 AM")
     else:
         print(f"❌ Failed to schedule morning greeting")
@@ -204,7 +180,7 @@ def send_morning_greetings():
     return 1
 
 def send_questions_to_all():
-    """TEST MODE: Send fun question ONLY TO YOU at 11:25 AM"""
+    """TEST MODE: Send fun question ONLY TO YOU at 11:40 AM"""
     tracker = load_tracker()
     today = datetime.now().date().isoformat()
     today_weekday = datetime.now().weekday()
@@ -219,25 +195,18 @@ def send_questions_to_all():
         print(f"Questions already sent today ({today}). Skipping.")
         return 0
     
-    # FIND YOUR USER ID
-    your_user_id, your_name = get_user_id_by_email(YOUR_EMAIL)
-    
-    if not your_user_id:
-        print(f"Could not find user with email {YOUR_EMAIL}")
-        return 0
-    
-    print(f"Sending fun question to YOU ({your_name}) at 11:25 AM...")
+    print(f"Sending fun question to YOU ({YOUR_NAME}) at 11:25 AM...")
     
     question = random.choice(QUESTIONS)
     
-    user_answers[your_user_id] = {
+    user_answers[YOUR_USER_ID] = {
         "question": question,
-        "name": your_name
+        "name": YOUR_NAME
     }
     
     message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer!_"
     
-    if schedule_message_for_user(your_user_id, YOUR_TIMEZONE, message, 11, 25):
+    if schedule_message_for_user(YOUR_USER_ID, YOUR_TIMEZONE, message, 11, 25):
         print(f"✅ Question scheduled for YOU at 11:25 AM")
     else:
         print(f"❌ Failed to schedule question")
@@ -284,8 +253,8 @@ def run_scheduler():
             send_morning_greetings()
             time.sleep(60)
         
-        # Fun questions at 11:25 AM
-        if now.hour == 11 and now.minute == 25:
+        # Fun questions at 11:40 AM
+        if now.hour == 11 and now.minute == 40:
             send_questions_to_all()
             time.sleep(60)
         
@@ -314,7 +283,8 @@ def test_questions(ack, command, client):
 if __name__ == "__main__":
     print("🚀 Team Bonding Bot is running!")
     print("   Morning greetings: Mon-Fri at 9:00 AM (TEST MODE - ONLY YOU)")
-    print("   Fun questions: Mon/Wed/Fri at 11:25 AM (TEST MODE - ONLY YOU)")
+    print("   Fun questions: Mon/Wed/Fri at 11:40 AM (TEST MODE - ONLY YOU)")
+    print(f"   Your User ID: {YOUR_USER_ID}")
     print("   No weekends | No duplicates | File-based tracking")
     
     # Run once on startup
