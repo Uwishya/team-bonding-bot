@@ -1,6 +1,5 @@
 import os
 import random
-import schedule
 import time
 import threading
 from datetime import datetime, timezone, timedelta
@@ -14,10 +13,18 @@ load_dotenv()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
-# Track if already sent today
-morning_sent_today = False
-questions_sent_today = False
-last_sent_date = None
+# ============================================
+# TRACKING - PREVENTS DUPLICATES
+# ============================================
+
+messages_sent_today = {
+    "morning": False,
+    "questions": False,
+    "date": None
+}
+
+morning_sent_users = set()
+questions_sent_users = set()
 
 # ============================================
 # 53 FUN QUESTIONS
@@ -156,15 +163,22 @@ def schedule_message_for_user(user_id, user_tz, message, target_hour, target_min
         app.client.chat_scheduleMessage(channel=user_id, text=message, post_at=utc_timestamp)
         return True
     except Exception as e:
-        print(f"Error scheduling: {e}")
+        print(f"Error: {e}")
         return False
 
 def send_morning_greetings():
-    global morning_sent_today, last_sent_date
-    today = datetime.now().date()
+    global messages_sent_today, morning_sent_users
     
-    if morning_sent_today and last_sent_date == today:
-        print("Morning greetings already sent today. Skipping.")
+    today = datetime.now().date()
+    today_weekday = datetime.now().weekday()
+    
+    # NO MESSAGES ON WEEKENDS (Saturday=5, Sunday=6)
+    if today_weekday in [5, 6]:
+        print("Weekend. No morning greetings.")
+        return 0
+    
+    if messages_sent_today["morning"] and messages_sent_today["date"] == today:
+        print("Morning already sent today. Skipping.")
         return 0
     
     print("Sending morning greetings...")
@@ -173,25 +187,32 @@ def send_morning_greetings():
     count = 0
     
     for user in target_users:
+        user_key = f"{user['id']}_{today}"
+        if user_key in morning_sent_users:
+            continue
+        
         if schedule_message_for_user(user["id"], user["tz"], message, 9, 0):
+            morning_sent_users.add(user_key)
             count += 1
-            print(f"Scheduled morning greeting for {user['name']}")
+            print(f"Morning for {user['name']}")
     
-    morning_sent_today = True
-    last_sent_date = today
-    print(f"Scheduled morning greetings for {count} people")
+    messages_sent_today["morning"] = True
+    messages_sent_today["date"] = today
+    print(f"Morning greetings sent to {count} people")
     return count
 
 def send_questions_to_all():
-    global questions_sent_today, last_sent_date
-    today = datetime.now().date()
+    global messages_sent_today, questions_sent_users
     
+    today = datetime.now().date()
     today_weekday = datetime.now().weekday()
+    
+    # Only Mon/Wed/Fri (0=Monday, 2=Wednesday, 4=Friday)
     if today_weekday not in [0, 2, 4]:
-        print(f"No fun questions today (only Mon, Wed, Fri)")
+        print("Not Mon/Wed/Fri. No questions.")
         return 0
     
-    if questions_sent_today and last_sent_date == today:
+    if messages_sent_today["questions"] and messages_sent_today["date"] == today:
         print("Questions already sent today. Skipping.")
         return 0
     
@@ -201,24 +222,25 @@ def send_questions_to_all():
     count = 0
     
     for user in target_users:
-        user_id = user["id"]
-        user_name = user["name"]
-        user_tz = user["tz"]
+        user_key = f"{user['id']}_{today}"
+        if user_key in questions_sent_users:
+            continue
         
-        user_answers[user_id] = {
+        user_answers[user["id"]] = {
             "question": question,
-            "name": user_name
+            "name": user["name"]
         }
         
-        message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer and I'll share it with the team!_"
+        message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer!_"
         
-        if schedule_message_for_user(user_id, user_tz, message, 11, 0):
+        if schedule_message_for_user(user["id"], user["tz"], message, 11, 0):
+            questions_sent_users.add(user_key)
             count += 1
-            print(f"Scheduled fun question for {user_name}")
+            print(f"Question for {user['name']}")
     
-    questions_sent_today = True
-    last_sent_date = today
-    print(f"Scheduled questions for {count} people")
+    messages_sent_today["questions"] = True
+    messages_sent_today["date"] = today
+    print(f"Questions sent to {count} people")
     return count
 
 @app.event("message")
@@ -237,21 +259,19 @@ def handle_answer(message, say):
             )
             app.client.chat_postMessage(
                 channel=user_id,
-                text=f"Thanks! Your answer has been shared in the watercooler channel!"
+                text=f"Thanks! Your answer has been shared!"
             )
             del user_answers[user_id]
             print(f"Answer posted for {user_name}")
         except Exception as e:
-            print(f"Error posting answer: {e}")
+            print(f"Error: {e}")
 
 def run_scheduler():
-    global morning_sent_today, questions_sent_today, last_sent_date
-    
     def reset_daily():
-        global morning_sent_today, questions_sent_today, last_sent_date
-        morning_sent_today = False
-        questions_sent_today = False
-        last_sent_date = None
+        global messages_sent_today, morning_sent_users, questions_sent_users
+        messages_sent_today = {"morning": False, "questions": False, "date": None}
+        morning_sent_users.clear()
+        questions_sent_users.clear()
         print("Daily flags reset")
     
     schedule.every().day.at("00:01").do(reset_daily)
@@ -260,13 +280,10 @@ def run_scheduler():
     schedule.every().wednesday.at("11:00").do(send_questions_to_all)
     schedule.every().friday.at("11:00").do(send_questions_to_all)
     
-    print("Scheduler started!")
-    print("   Morning greetings: Daily at 9 AM local time")
-    print("   Fun questions: Monday, Wednesday, Friday at 11 AM local time")
-    
+    print("Scheduler started")
     while True:
         schedule.run_pending()
-        time.sleep(60)
+        time.sleep(30)
 
 @app.command("/send-morning")
 def test_morning(ack, command, client):
@@ -275,7 +292,7 @@ def test_morning(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"Morning greetings scheduled for {count} people!"
+        text=f"Morning greetings sent to {count} people!"
     )
 
 @app.command("/send-questions")
@@ -285,22 +302,19 @@ def test_questions(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"Fun questions scheduled for {count} people!"
+        text=f"Questions sent to {count} people!"
     )
 
 if __name__ == "__main__":
     print("Team Bonding Bot is running!")
-    print("   Morning greetings: Daily at 9 AM local time (31 messages)")
-    print("   Fun questions: Monday, Wednesday, Friday at 11 AM local time (53 messages)")
-    print("   Target: @dreamstartlabs.com users only")
+    print("   Morning greetings: Mon-Fri at 9 AM local time (NO weekends)")
+    print("   Fun questions: Monday, Wednesday, Friday at 11 AM local time")
     
     send_morning_greetings()
     
     today_weekday = datetime.now().weekday()
     if today_weekday in [0, 2, 4]:
         send_questions_to_all()
-    else:
-        print(f"No fun questions today (only Mon, Wed, Fri)")
     
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()
