@@ -1,8 +1,8 @@
 import os
 import random
-import schedule
 import time
 import threading
+import json
 from datetime import datetime, timezone, timedelta
 import pytz
 from dotenv import load_dotenv
@@ -14,18 +14,19 @@ load_dotenv()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
-# ============================================
-# TRACKING - PREVENTS DUPLICATES
-# ============================================
+# File to track sent messages
+TRACKER_FILE = "sent_tracker.json"
 
-messages_sent_today = {
-    "morning": False,
-    "questions": False,
-    "date": None
-}
+def load_tracker():
+    try:
+        with open(TRACKER_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"morning_date": None, "questions_date": None}
 
-morning_sent_users = set()
-questions_sent_users = set()
+def save_tracker(tracker):
+    with open(TRACKER_FILE, "w") as f:
+        json.dump(tracker, f)
 
 # ============================================
 # 53 FUN QUESTIONS
@@ -128,30 +129,28 @@ MORNING_MESSAGES = [
 
 user_answers = {}
 
-def get_target_users():
+# YOUR INFO - ONLY YOU RECEIVE EVERYTHING
+YOUR_EMAIL = "uwishya@dreamstartlabs.com"
+YOUR_TIMEZONE = "Africa/Harare"
+
+def get_user_id_by_email(target_email):
+    """Find user ID by email address"""
     try:
         users = app.client.users_list()["members"]
-        target_users = []
         for user in users:
             if user["is_bot"] or user["deleted"]:
                 continue
             try:
                 user_info = app.client.users_info(user=user["id"])
                 email = user_info["user"]["profile"].get("email", "")
-                tz = user.get("tz", "Africa/Kigali")
-                if email.endswith("@dreamstartlabs.com"):
-                    target_users.append({
-                        "id": user["id"],
-                        "name": user["name"],
-                        "email": email,
-                        "tz": tz
-                    })
+                if email == target_email:
+                    return user["id"], user["name"]
             except:
                 pass
-        return target_users
+        return None, None
     except Exception as e:
         print(f"Error: {e}")
-        return []
+        return None, None
 
 def schedule_message_for_user(user_id, user_tz, message, target_hour, target_minute=0):
     try:
@@ -168,81 +167,86 @@ def schedule_message_for_user(user_id, user_tz, message, target_hour, target_min
         return False
 
 def send_morning_greetings():
-    global messages_sent_today, morning_sent_users
-    
-    today = datetime.now().date()
+    """TEST MODE: Send morning greeting ONLY TO YOU"""
+    tracker = load_tracker()
+    today = datetime.now().date().isoformat()
     today_weekday = datetime.now().weekday()
     
-    # NO MESSAGES ON WEEKENDS (Saturday=5, Sunday=6)
+    # NO WEEKENDS
     if today_weekday in [5, 6]:
-        print("Weekend. No morning greetings.")
+        print(f"Weekend. No morning greetings.")
         return 0
     
-    if messages_sent_today["morning"] and messages_sent_today["date"] == today:
-        print("Morning already sent today. Skipping.")
+    # CHECK IF ALREADY SENT TODAY
+    if tracker.get("morning_date") == today:
+        print(f"Morning already sent today ({today}). Skipping.")
         return 0
     
-    print("Sending morning greetings...")
-    target_users = get_target_users()
+    # FIND YOUR USER ID
+    your_user_id, your_name = get_user_id_by_email(YOUR_EMAIL)
+    
+    if not your_user_id:
+        print(f"Could not find user with email {YOUR_EMAIL}")
+        return 0
+    
+    print(f"Sending morning greeting to YOU ({your_name})...")
     message = random.choice(MORNING_MESSAGES)
-    count = 0
     
-    for user in target_users:
-        user_key = f"{user['id']}_{today}"
-        if user_key in morning_sent_users:
-            continue
-        
-        if schedule_message_for_user(user["id"], user["tz"], message, 9, 0):
-            morning_sent_users.add(user_key)
-            count += 1
-            print(f"Morning for {user['name']}")
+    if schedule_message_for_user(your_user_id, YOUR_TIMEZONE, message, 9, 0):
+        print(f"✅ Morning greeting scheduled for YOU at 9:00 AM")
+    else:
+        print(f"❌ Failed to schedule morning greeting")
     
-    messages_sent_today["morning"] = True
-    messages_sent_today["date"] = today
-    print(f"Morning greetings sent to {count} people")
-    return count
+    # MARK AS SENT
+    tracker["morning_date"] = today
+    save_tracker(tracker)
+    print(f"Morning greeting sent to 1 person (TEST MODE - only you)")
+    return 1
 
 def send_questions_to_all():
-    global messages_sent_today, questions_sent_users
-    
-    today = datetime.now().date()
+    """TEST MODE: Send fun question ONLY TO YOU at 11:25 AM"""
+    tracker = load_tracker()
+    today = datetime.now().date().isoformat()
     today_weekday = datetime.now().weekday()
     
-    # Only Mon/Wed/Fri (0=Monday, 2=Wednesday, 4=Friday)
+    # ONLY MON/WED/FRI
     if today_weekday not in [0, 2, 4]:
-        print("Not Mon/Wed/Fri. No questions.")
+        print(f"Not Mon/Wed/Fri. No questions.")
         return 0
     
-    if messages_sent_today["questions"] and messages_sent_today["date"] == today:
-        print("Questions already sent today. Skipping.")
+    # CHECK IF ALREADY SENT TODAY
+    if tracker.get("questions_date") == today:
+        print(f"Questions already sent today ({today}). Skipping.")
         return 0
     
-    print("Sending fun questions...")
-    target_users = get_target_users()
+    # FIND YOUR USER ID
+    your_user_id, your_name = get_user_id_by_email(YOUR_EMAIL)
+    
+    if not your_user_id:
+        print(f"Could not find user with email {YOUR_EMAIL}")
+        return 0
+    
+    print(f"Sending fun question to YOU ({your_name}) at 11:25 AM...")
+    
     question = random.choice(QUESTIONS)
-    count = 0
     
-    for user in target_users:
-        user_key = f"{user['id']}_{today}"
-        if user_key in questions_sent_users:
-            continue
-        
-        user_answers[user["id"]] = {
-            "question": question,
-            "name": user["name"]
-        }
-        
-        message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer!_"
-        
-        if schedule_message_for_user(user["id"], user["tz"], message, 11, 0):
-            questions_sent_users.add(user_key)
-            count += 1
-            print(f"Question for {user['name']}")
+    user_answers[your_user_id] = {
+        "question": question,
+        "name": your_name
+    }
     
-    messages_sent_today["questions"] = True
-    messages_sent_today["date"] = today
-    print(f"Questions sent to {count} people")
-    return count
+    message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer!_"
+    
+    if schedule_message_for_user(your_user_id, YOUR_TIMEZONE, message, 11, 25):
+        print(f"✅ Question scheduled for YOU at 11:25 AM")
+    else:
+        print(f"❌ Failed to schedule question")
+    
+    # MARK AS SENT
+    tracker["questions_date"] = today
+    save_tracker(tracker)
+    print(f"Question sent to 1 person (TEST MODE - only you)")
+    return 1
 
 @app.event("message")
 def handle_answer(message, say):
@@ -268,22 +272,23 @@ def handle_answer(message, say):
             print(f"Error: {e}")
 
 def run_scheduler():
-    def reset_daily():
-        global messages_sent_today, morning_sent_users, questions_sent_users
-        messages_sent_today = {"morning": False, "questions": False, "date": None}
-        morning_sent_users.clear()
-        questions_sent_users.clear()
-        print("Daily flags reset")
-    
-    schedule.every().day.at("00:01").do(reset_daily)
-    schedule.every().day.at("09:00").do(send_morning_greetings)
-    schedule.every().monday.at("11:00").do(send_questions_to_all)
-    schedule.every().wednesday.at("11:00").do(send_questions_to_all)
-    schedule.every().friday.at("11:00").do(send_questions_to_all)
-    
     print("Scheduler started")
+    print("   Morning greetings: Mon-Fri at 9:00 AM (TEST MODE - only you)")
+    print("   Fun questions: Mon/Wed/Fri at 11:25 AM (TEST MODE - only you)")
+    
     while True:
-        schedule.run_pending()
+        now = datetime.now()
+        
+        # Morning greetings at 9:00 AM
+        if now.hour == 9 and now.minute == 0:
+            send_morning_greetings()
+            time.sleep(60)
+        
+        # Fun questions at 11:25 AM
+        if now.hour == 11 and now.minute == 25:
+            send_questions_to_all()
+            time.sleep(60)
+        
         time.sleep(30)
 
 @app.command("/send-morning")
@@ -293,7 +298,7 @@ def test_morning(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"Morning greetings sent to {count} people!"
+        text=f"Morning greeting sent to {count} people (TEST MODE - only you)!"
     )
 
 @app.command("/send-questions")
@@ -303,14 +308,16 @@ def test_questions(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"Questions sent to {count} people!"
+        text=f"Questions sent to {count} people (TEST MODE - only you)!"
     )
 
 if __name__ == "__main__":
-    print("Team Bonding Bot is running!")
-    print("   Morning greetings: Mon-Fri at 9 AM local time (NO weekends)")
-    print("   Fun questions: Monday, Wednesday, Friday at 11 AM local time")
+    print("🚀 Team Bonding Bot is running!")
+    print("   Morning greetings: Mon-Fri at 9:00 AM (TEST MODE - ONLY YOU)")
+    print("   Fun questions: Mon/Wed/Fri at 11:25 AM (TEST MODE - ONLY YOU)")
+    print("   No weekends | No duplicates | File-based tracking")
     
+    # Run once on startup
     send_morning_greetings()
     
     today_weekday = datetime.now().weekday()
