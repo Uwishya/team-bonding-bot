@@ -3,6 +3,7 @@ import random
 import time
 import threading
 from datetime import datetime
+import pytz
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -20,7 +21,6 @@ QUESTIONS = [
 ]
 
 user_answers = {}
-message_sent = False  # Track if already sent
 
 @app.command("/send-questions")
 def handle_question(ack, command, client):
@@ -50,45 +50,32 @@ def handle_answer(message, say):
             print(f"Error: {e}")
 
 # ============================================
-# SCHEDULER - SENDS ONE MESSAGE AT 12:10 PM
+# SEND TEST MESSAGE IMMEDIATELY
 # ============================================
 
-def run_scheduler():
-    global message_sent
-    print("⏰ Scheduler started - waiting for 12:10 PM...")
-    
+print("=" * 50)
+print("🧪 SENDING TEST MESSAGE RIGHT NOW")
+print("=" * 50)
+
+question = random.choice(QUESTIONS)
+try:
+    app.client.chat_postMessage(
+        channel=YOUR_USER_ID,
+        text=f"🧪 **IMMEDIATE TEST MESSAGE**\n\n💭 {question}\n\n_Reply with your answer!_"
+    )
+    print("✅ Test message sent! Check Slack.")
+except Exception as e:
+    print(f"❌ Error: {e}")
+
+# ============================================
+# KEEP BOT ALIVE
+# ============================================
+
+def keep_alive():
     while True:
-        now = datetime.now()
-        
-        # Check if it's 12:10 PM and message not sent yet
-        if now.hour == 12 and now.minute == 10 and not message_sent:
-            print(f"🔴 12:10 PM reached! Sending test message...")
-            question = random.choice(QUESTIONS)
-            try:
-                app.client.chat_postMessage(
-                    channel=YOUR_USER_ID,
-                    text=f"🧪 **TEST MESSAGE at 12:10 PM**\n\n💭 {question}\n\n_Reply with your answer!_"
-                )
-                message_sent = True
-                print(f"✅ Test message sent at {now}")
-            except Exception as e:
-                print(f"❌ Error: {e}")
-        
-        time.sleep(1)
-
-# ============================================
-# MAIN
-# ============================================
+        time.sleep(60)
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("⏰ BOT WILL SEND TEST MESSAGE AT 12:10 PM")
-    print("   ONE message only (no duplicates)")
-    print("=" * 50)
-    
-    # Start scheduler
-    threading.Thread(target=run_scheduler, daemon=True).start()
-    
-    # Start Slack app
+    threading.Thread(target=keep_alive, daemon=True).start()
     handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     handler.start()
