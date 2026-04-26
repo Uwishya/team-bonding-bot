@@ -14,6 +14,7 @@ app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
 YOUR_USER_ID = "U0A6W461UFN"
+LOCAL_TZ = pytz.timezone("Africa/Harare")
 
 QUESTIONS = [
     "What's a small thing that made you smile recently?",
@@ -21,6 +22,7 @@ QUESTIONS = [
 ]
 
 user_answers = {}
+message_sent_today = False  # Track if already sent today
 
 @app.command("/send-questions")
 def handle_question(ack, command, client):
@@ -50,32 +52,46 @@ def handle_answer(message, say):
             print(f"Error: {e}")
 
 # ============================================
-# SEND TEST MESSAGE IMMEDIATELY
+# SCHEDULER - SENDS ONE MESSAGE AT 1:00 PM
 # ============================================
 
-print("=" * 50)
-print("🧪 SENDING TEST MESSAGE RIGHT NOW")
-print("=" * 50)
-
-question = random.choice(QUESTIONS)
-try:
-    app.client.chat_postMessage(
-        channel=YOUR_USER_ID,
-        text=f"🧪 **IMMEDIATE TEST MESSAGE**\n\n💭 {question}\n\n_Reply with your answer!_"
-    )
-    print("✅ Test message sent! Check Slack.")
-except Exception as e:
-    print(f"❌ Error: {e}")
-
-# ============================================
-# KEEP BOT ALIVE
-# ============================================
-
-def keep_alive():
+def run_scheduler():
+    global message_sent_today
+    print(f"⏰ Scheduler started - will send ONE test message at 1:00 PM your time")
+    
     while True:
-        time.sleep(60)
+        now = datetime.now(LOCAL_TZ)
+        
+        # Send at 1:00 PM (only once per day)
+        if now.hour == 13 and now.minute == 0 and not message_sent_today:
+            print(f"🔴 1:00 PM reached! Sending ONE message...")
+            question = random.choice(QUESTIONS)
+            try:
+                app.client.chat_postMessage(
+                    channel=YOUR_USER_ID,
+                    text=f"🧪 **TEST at 1:00 PM**\n\n💭 {question}\n\n_Reply with your answer!_"
+                )
+                message_sent_today = True
+                print(f"✅ ONE message sent at {now}")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+        
+        time.sleep(1)
+
+# ============================================
+# MAIN
+# ============================================
 
 if __name__ == "__main__":
-    threading.Thread(target=keep_alive, daemon=True).start()
+    print("=" * 50)
+    print("⏰ BOT WILL SEND ONE TEST MESSAGE AT 1:00 PM")
+    print("   Your timezone: Africa/Harare")
+    print("   ONE message only (no duplicates)")
+    print("=" * 50)
+    
+    # Start scheduler
+    threading.Thread(target=run_scheduler, daemon=True).start()
+    
+    # Start Slack app
     handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     handler.start()
