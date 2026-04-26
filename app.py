@@ -14,34 +14,13 @@ WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
 YOUR_USER_ID = "U0A6W461UFN"
 
-MORNING_MESSAGES = [
-    "🌞 Good morning! Hope you have a fantastic day!",
-    "☀️ Rise and shine! You've got this!",
-]
-
 QUESTIONS = [
     "What's a small thing that made you smile recently?",
     "What's a skill you'd love to learn and why?",
 ]
 
-# Tracking
-last_morning_date = None
-last_question_date = None
-last_morning_minute = None
-last_question_minute = None
-
 user_answers = {}
-
-# ============================================
-# COMMAND HANDLERS
-# ============================================
-
-@app.command("/send-morning")
-def handle_morning(ack, command, client):
-    ack()
-    msg = random.choice(MORNING_MESSAGES)
-    client.chat_postMessage(channel=YOUR_USER_ID, text=msg)
-    client.chat_postEphemeral(channel=command["channel_id"], user=command["user_id"], text="✅ Sent!")
+message_sent = False  # Track if already sent
 
 @app.command("/send-questions")
 def handle_question(ack, command, client):
@@ -71,39 +50,30 @@ def handle_answer(message, say):
             print(f"Error: {e}")
 
 # ============================================
-# TEST SCHEDULER - SENDS AT 12:00 PM
+# SCHEDULER - SENDS ONE MESSAGE AT 12:10 PM
 # ============================================
 
-def check_and_send():
-    global last_morning_date, last_question_date, last_morning_minute, last_question_minute
-    
-    now = datetime.now()
-    today = now.date()
-    weekday = now.weekday()
-    current_minute = now.hour * 60 + now.minute
-    
-    # TEST: Send at 12:00 PM (NOON) - Sunday is fine for testing
-    if now.hour == 12:
-        if last_question_minute != current_minute:
-            last_question_minute = current_minute
-            print(f"🔴 TEST TRIGGER at {now.strftime('%H:%M:%S')}")
-            
-            question = random.choice(QUESTIONS)
-            user_answers[YOUR_USER_ID] = {"question": question, "name": "TestUser"}
-            app.client.chat_postMessage(
-                channel=YOUR_USER_ID, 
-                text=f"🧪 **TEST MESSAGE** at {now.strftime('%H:%M:%S')}\n\n💭 {question}\n\n_Reply with your answer!_"
-            )
-            print(f"✅ Test message sent")
-
 def run_scheduler():
-    print("🕐 TEST SCHEDULER - Will send at 12:00 PM")
-    print("   Checking every second...")
+    global message_sent
+    print("⏰ Scheduler started - waiting for 12:10 PM...")
+    
     while True:
-        try:
-            check_and_send()
-        except Exception as e:
-            print(f"Error: {e}")
+        now = datetime.now()
+        
+        # Check if it's 12:10 PM and message not sent yet
+        if now.hour == 12 and now.minute == 10 and not message_sent:
+            print(f"🔴 12:10 PM reached! Sending test message...")
+            question = random.choice(QUESTIONS)
+            try:
+                app.client.chat_postMessage(
+                    channel=YOUR_USER_ID,
+                    text=f"🧪 **TEST MESSAGE at 12:10 PM**\n\n💭 {question}\n\n_Reply with your answer!_"
+                )
+                message_sent = True
+                print(f"✅ Test message sent at {now}")
+            except Exception as e:
+                print(f"❌ Error: {e}")
+        
         time.sleep(1)
 
 # ============================================
@@ -112,9 +82,8 @@ def run_scheduler():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("🧪 TEST MODE")
-    print("   Bot will send a test message at 12:00 PM")
-    print("   Commands still work: /send-morning , /send-questions")
+    print("⏰ BOT WILL SEND TEST MESSAGE AT 12:10 PM")
+    print("   ONE message only (no duplicates)")
     print("=" * 50)
     
     # Start scheduler
