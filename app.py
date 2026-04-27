@@ -105,11 +105,12 @@ def get_all_team_members():
                         "id": user["id"],
                         "name": user["name"],
                         "email": email,
-                        "tz": user.get("tz", "Africa/Kigali")
+                        "tz": user.get("tz", "Africa/Harare")
                     })
+                    print(f"   ✅ {user['name']} ({email}) - Timezone: {user.get('tz', 'Africa/Harare')}")
             except:
                 pass
-        print(f"📊 Found {len(team_members)} team members")
+        print(f"📊 Total team members: {len(team_members)}")
         return team_members
     except Exception as e:
         print(f"Error: {e}")
@@ -130,7 +131,7 @@ def schedule_message_at_local_time(user_id, user_tz, message, target_hour, targe
         app.client.chat_scheduleMessage(channel=user_id, text=message, post_at=utc_timestamp)
         return True
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error scheduling for {user_id}: {e}")
         return False
 
 # ============================================
@@ -155,14 +156,15 @@ def send_morning_to_all():
     message = random.choice(MORNING_MESSAGES)
     count = 0
     
+    print(f"\n📨 Sending morning greetings to {len(team_members)} people...")
     for user in team_members:
         if schedule_message_at_local_time(user["id"], user["tz"], message, 9, 0):
             count += 1
-            print(f"✅ Morning scheduled for {user['name']}")
+            print(f"   ✅ Morning scheduled for {user['name']} at 9 AM {user['tz']}")
     
     tracker["morning_date"] = today
     save_tracker(tracker)
-    print(f"✅ Morning greetings sent to {count} people")
+    print(f"✅ Morning greetings sent to {count} people\n")
 
 # ============================================
 # SEND QUESTIONS TO ALL (MON/WED/FRI, 11 AM LOCAL)
@@ -186,6 +188,7 @@ def send_questions_to_all():
     question = random.choice(QUESTIONS)
     count = 0
     
+    print(f"\n📨 Sending fun questions to {len(team_members)} people...")
     for user in team_members:
         user_answers[user["id"]] = {
             "question": question,
@@ -194,11 +197,11 @@ def send_questions_to_all():
         message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer!_"
         if schedule_message_at_local_time(user["id"], user["tz"], message, 11, 0):
             count += 1
-            print(f"✅ Question scheduled for {user['name']}")
+            print(f"   ✅ Question scheduled for {user['name']} at 11 AM {user['tz']}")
     
     tracker["question_date"] = today
     save_tracker(tracker)
-    print(f"✅ Questions sent to {count} people")
+    print(f"✅ Questions sent to {count} people\n")
 
 # ============================================
 # HANDLE REPLIES
@@ -255,21 +258,25 @@ def test_questions(ack, command, client):
 # ============================================
 
 def run_scheduler():
-    print(f"⏰ Scheduler started using timezone: Africa/Harare")
+    print(f"\n⏰ SCHEDULER STARTED")
+    print(f"   Timezone: Africa/Harare")
     print(f"   Current time: {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"   Morning: Mon-Fri at 9:00 AM")
-    print(f"   Question: Mon/Wed/Fri at 11:00 AM")
+    print(f"   Morning: Monday-Friday at 9:00 AM")
+    print(f"   Question: Monday, Wednesday, Friday at 11:00 AM")
+    print(f"   Target: @dreamstartlabs.com users only\n")
     
     while True:
         now = datetime.now(LOCAL_TZ)
         
+        # Morning at 9:00 AM
         if now.hour == 9 and now.minute == 0:
-            print(f"🔔 9:00 AM - Sending morning greetings...")
+            print(f"\n🔔 9:00 AM - TRIGGERING MORNING GREETINGS")
             send_morning_to_all()
             time.sleep(60)
         
+        # Questions at 11:00 AM
         if now.hour == 11 and now.minute == 0:
-            print(f"🔔 11:00 AM - Sending fun questions...")
+            print(f"\n🔔 11:00 AM - TRIGGERING FUN QUESTIONS")
             send_questions_to_all()
             time.sleep(60)
         
@@ -280,24 +287,27 @@ def run_scheduler():
 # ============================================
 
 if __name__ == "__main__":
-    print("=" * 60)
+    print("=" * 70)
     print("🚀 TEAM BONDING BOT - WORKING VERSION")
+    print("=" * 70)
     print(f"   Timezone: Africa/Harare")
     print(f"   Current time: {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
-    print("   Morning: Mon-Fri at 9:00 AM (sends to ALL team members)")
-    print("   Question: Mon/Wed/Fri at 11:00 AM (sends to ALL team members)")
-    print("   Target: @dreamstartlabs.com users only")
-    print("   ONE message per day | NO duplicates | NO weekends")
-    print("=" * 60)
+    print(f"   Morning: Monday-Friday at 9:00 AM (sends to ALL team members)")
+    print(f"   Question: Monday, Wednesday, Friday at 11:00 AM (sends to ALL team members)")
+    print(f"   Target: @dreamstartlabs.com users only")
+    print(f"   ONE message per day | NO duplicates | NO weekends")
+    print("=" * 70)
     
-    # Print team members on startup (no messages sent)
-    print("\n📊 Checking team members...")
+    # Print team members on startup
+    print("\n📊 LOADING TEAM MEMBERS...")
     members = get_all_team_members()
-    print(f"📊 Found {len(members)} team members with @dreamstartlabs.com")
+    print(f"\n✅ Team loaded: {len(members)} members with @dreamstartlabs.com")
     
     # Start scheduler
+    print("\n⏰ Starting scheduler...")
     threading.Thread(target=run_scheduler, daemon=True).start()
     
     # Start Slack app
+    print("⚡️ Starting Slack app...\n")
     handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     handler.start()
