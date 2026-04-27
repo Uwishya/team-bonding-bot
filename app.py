@@ -14,9 +14,9 @@ load_dotenv()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
+# YOUR TIMEZONE - AFRICA/HARARE
 LOCAL_TZ = pytz.timezone("Africa/Harare")
 
-# File to track sent messages (persists across restarts)
 TRACKER_FILE = "sent_tracker.json"
 
 def load_tracker():
@@ -31,7 +31,7 @@ def save_tracker(tracker):
         json.dump(tracker, f)
 
 # ============================================
-# MORNING MESSAGES (15+)
+# MORNING MESSAGES
 # ============================================
 
 MORNING_MESSAGES = [
@@ -53,7 +53,7 @@ MORNING_MESSAGES = [
 ]
 
 # ============================================
-# FUN QUESTIONS (25+)
+# FUN QUESTIONS
 # ============================================
 
 QUESTIONS = [
@@ -87,11 +87,10 @@ QUESTIONS = [
 user_answers = {}
 
 # ============================================
-# GET ALL TEAM MEMBERS WITH @dreamstartlabs.com
+# GET ALL TEAM MEMBERS
 # ============================================
 
 def get_all_team_members():
-    """Get all users with @dreamstartlabs.com email"""
     try:
         users = app.client.users_list()["members"]
         team_members = []
@@ -121,7 +120,6 @@ def get_all_team_members():
 # ============================================
 
 def schedule_message_at_local_time(user_id, user_tz, message, target_hour, target_minute):
-    """Schedule a message at the user's local time"""
     try:
         user_timezone = pytz.timezone(user_tz)
         now_local = datetime.now(user_timezone)
@@ -132,11 +130,11 @@ def schedule_message_at_local_time(user_id, user_tz, message, target_hour, targe
         app.client.chat_scheduleMessage(channel=user_id, text=message, post_at=utc_timestamp)
         return True
     except Exception as e:
-        print(f"Error scheduling for {user_id}: {e}")
+        print(f"Error: {e}")
         return False
 
 # ============================================
-# MORNING GREETINGS (MON-FRI, 9 AM)
+# SEND MORNING TO ALL (MON-FRI, 9 AM LOCAL)
 # ============================================
 
 def send_morning_to_all():
@@ -145,14 +143,12 @@ def send_morning_to_all():
     today = now.date().isoformat()
     weekday = now.weekday()
     
-    # NO WEEKENDS
     if weekday in [5, 6]:
-        print(f"Saturday/Sunday - No morning messages")
+        print("Weekend - No morning messages")
         return
     
-    # Already sent today?
     if tracker.get("morning_date") == today:
-        print(f"Morning already sent today. Skipping.")
+        print("Morning already sent today. Skipping.")
         return
     
     team_members = get_all_team_members()
@@ -169,7 +165,7 @@ def send_morning_to_all():
     print(f"✅ Morning greetings sent to {count} people")
 
 # ============================================
-# FUN QUESTIONS (MON/WED/FRI, 11 AM)
+# SEND QUESTIONS TO ALL (MON/WED/FRI, 11 AM LOCAL)
 # ============================================
 
 def send_questions_to_all():
@@ -178,14 +174,12 @@ def send_questions_to_all():
     today = now.date().isoformat()
     weekday = now.weekday()
     
-    # ONLY MON/WED/FRI
     if weekday not in [0, 2, 4]:
-        print(f"Not Mon/Wed/Fri - No questions")
+        print("Not Mon/Wed/Fri - No questions")
         return
     
-    # Already sent today?
     if tracker.get("question_date") == today:
-        print(f"Questions already sent today. Skipping.")
+        print("Questions already sent today. Skipping.")
         return
     
     team_members = get_all_team_members()
@@ -193,14 +187,11 @@ def send_questions_to_all():
     count = 0
     
     for user in team_members:
-        # Store question to capture answer later
         user_answers[user["id"]] = {
             "question": question,
             "name": user["name"]
         }
-        
         message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer!_"
-        
         if schedule_message_at_local_time(user["id"], user["tz"], message, 11, 0):
             count += 1
             print(f"✅ Question scheduled for {user['name']}")
@@ -210,7 +201,7 @@ def send_questions_to_all():
     print(f"✅ Questions sent to {count} people")
 
 # ============================================
-# HANDLE USER REPLIES
+# HANDLE REPLIES
 # ============================================
 
 @app.event("message")
@@ -218,12 +209,10 @@ def handle_answer(message, say):
     user_id = message.get("user")
     if message.get("subtype") == "bot_message" or user_id is None:
         return
-    
     if user_id in user_answers:
         answer = message.get("text", "").strip()
         question = user_answers[user_id]["question"]
         user_name = user_answers[user_id]["name"]
-        
         try:
             app.client.chat_postMessage(
                 channel=WATERCOOLER,
@@ -231,41 +220,14 @@ def handle_answer(message, say):
             )
             app.client.chat_postMessage(
                 channel=user_id,
-                text=f"✅ Thanks! Your answer has been shared in #watercooler!"
+                text="✅ Thanks! Your answer has been shared in #watercooler!"
             )
             del user_answers[user_id]
-            print(f"Answer posted for {user_name}")
         except Exception as e:
             print(f"Error: {e}")
 
 # ============================================
-# SCHEDULER
-# ============================================
-
-def run_scheduler():
-    print("⏰ Scheduler started")
-    print("   Morning: Mon-Fri at 9 AM (each user's local time)")
-    print("   Question: Mon/Wed/Fri at 11 AM (each user's local time)")
-    print("   Target: @dreamstartlabs.com users only")
-    print("   ONE message per day | NO duplicates | NO weekends")
-    
-    while True:
-        now = datetime.now(LOCAL_TZ)
-        
-        # Morning at 9:00 AM
-        if now.hour == 9 and now.minute == 0:
-            send_morning_to_all()
-            time.sleep(60)
-        
-        # Questions at 11:00 AM
-        if now.hour == 11 and now.minute == 0:
-            send_questions_to_all()
-            time.sleep(60)
-        
-        time.sleep(10)
-
-# ============================================
-# SLASH COMMANDS FOR MANUAL TESTING
+# SLASH COMMANDS
 # ============================================
 
 @app.command("/send-morning")
@@ -275,7 +237,7 @@ def test_morning(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"✅ Morning greetings scheduled for everyone!"
+        text="✅ Morning greetings scheduled for everyone!"
     )
 
 @app.command("/send-questions")
@@ -285,8 +247,33 @@ def test_questions(ack, command, client):
     client.chat_postEphemeral(
         channel=command["channel_id"],
         user=command["user_id"],
-        text=f"✅ Questions scheduled for everyone!"
+        text="✅ Questions scheduled for everyone!"
     )
+
+# ============================================
+# SCHEDULER - CHECKS EVERY 10 SECONDS
+# ============================================
+
+def run_scheduler():
+    print(f"⏰ Scheduler started using timezone: Africa/Harare")
+    print(f"   Current time: {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"   Morning: Mon-Fri at 9:00 AM")
+    print(f"   Question: Mon/Wed/Fri at 11:00 AM")
+    
+    while True:
+        now = datetime.now(LOCAL_TZ)
+        
+        if now.hour == 9 and now.minute == 0:
+            print(f"🔔 9:00 AM - Sending morning greetings...")
+            send_morning_to_all()
+            time.sleep(60)
+        
+        if now.hour == 11 and now.minute == 0:
+            print(f"🔔 11:00 AM - Sending fun questions...")
+            send_questions_to_all()
+            time.sleep(60)
+        
+        time.sleep(10)
 
 # ============================================
 # MAIN
@@ -294,13 +281,19 @@ def test_questions(ack, command, client):
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("🚀 TEAM BONDING BOT - FINAL VERSION")
-    print("   Morning: Mon-Fri at 9 AM (local time)")
-    print("   Question: Mon/Wed/Fri at 11 AM (local time)")
-    print("   15+ morning messages | 25+ questions")
+    print("🚀 TEAM BONDING BOT - WORKING VERSION")
+    print(f"   Timezone: Africa/Harare")
+    print(f"   Current time: {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
+    print("   Morning: Mon-Fri at 9:00 AM (sends to ALL team members)")
+    print("   Question: Mon/Wed/Fri at 11:00 AM (sends to ALL team members)")
     print("   Target: @dreamstartlabs.com users only")
     print("   ONE message per day | NO duplicates | NO weekends")
     print("=" * 60)
+    
+    # Print team members on startup (no messages sent)
+    print("\n📊 Checking team members...")
+    members = get_all_team_members()
+    print(f"📊 Found {len(members)} team members with @dreamstartlabs.com")
     
     # Start scheduler
     threading.Thread(target=run_scheduler, daemon=True).start()
