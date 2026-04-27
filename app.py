@@ -3,91 +3,82 @@ import random
 import time
 import threading
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import pytz
 from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+import schedule
+
+# ============================================
+# LOAD ENVIRONMENT VARIABLES
+# ============================================
 
 load_dotenv()
 
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
-# YOUR TIMEZONE - AFRICA/HARARE
-LOCAL_TZ = pytz.timezone("Africa/Harare")
-
 TRACKER_FILE = "sent_tracker.json"
-
-def load_tracker():
-    try:
-        with open(TRACKER_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"morning_date": None, "question_date": None}
-
-def save_tracker(tracker):
-    with open(TRACKER_FILE, "w") as f:
-        json.dump(tracker, f)
+PENDING_FILE = "pending_answers.json"
 
 # ============================================
-# MORNING MESSAGES
+# STORAGE HELPERS
+# ============================================
+
+def load_json(filename):
+    try:
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Error loading {filename}: {e}")
+    return {}
+
+def save_json(filename, data):
+    try:
+        with open(filename, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"Error saving {filename}: {e}")
+
+# ============================================
+# DATA & MESSAGES
 # ============================================
 
 MORNING_MESSAGES = [
     "🌞 Good morning! Hope you have a fantastic day!",
     "☀️ Rise and shine! You've got this!",
     "🌅 Small steps lead to big results. Good morning!",
-    "💪 Morning! Remember why you started.",
-    "🌟 Good morning! Today is full of possibilities.",
-    "🌈 Good morning! Your energy makes a difference.",
-    "🍃 Good morning! Take a deep breath and go get it.",
-    "✨ Good morning! Be the reason someone smiles today.",
-    "🌸 Good morning! You are capable of amazing things.",
-    "🦋 Good morning! Every day is a fresh start.",
-    "⭐ Good morning! Make today your masterpiece.",
-    "🌻 Good morning! Your attitude determines your direction.",
-    "💫 Good morning! Believe in yourself.",
-    "🍀 Good morning! Luck is when preparation meets opportunity.",
-    "🎯 Good morning! Focus on what matters today.",
+    "✨ New day, new opportunities. Let’s make it amazing!",
+    "💪 Good morning team! Time to crush it today!",
+    "🌻 Sending you positive vibes this morning!",
+    "🚀 Let’s start the day strong and finish stronger!",
+    "😊 Wishing you a productive and joyful day ahead!",
+    "🌈 Good morning! Make today count!",
+    "🔥 Ready to do great things today? Let’s go!",
 ]
-
-# ============================================
-# FUN QUESTIONS
-# ============================================
 
 QUESTIONS = [
     "What's a small thing that made you smile recently?",
     "What's a skill you'd love to learn and why?",
     "What's the best advice you've ever received?",
-    "What's a book or movie that changed your perspective?",
-    "What's your favorite way to unwind after work?",
-    "If you could have dinner with anyone (dead or alive), who would it be?",
-    "What's something you're grateful for today?",
-    "What's a childhood memory that makes you happy?",
-    "What's a goal you're working toward right now?",
-    "What's a quote that motivates you?",
-    "What's something you'd tell your younger self?",
-    "What's a tradition from your culture that you love?",
-    "What's something you're looking forward to?",
-    "What's a fear you've overcome?",
-    "What's something that makes you feel proud?",
-    "What's something you've learned recently?",
-    "What's your favorite season and why?",
-    "What's a song that always puts you in a good mood?",
-    "What's a random act of kindness you've experienced?",
-    "What's something that surprised you this week?",
-    "What's a hobby you've always wanted to try?",
-    "What's the best meal you've had recently?",
-    "What's something that made you laugh this week?",
-    "If you could have any superpower, what would it be?",
-    "What's something you're excited about for the future?",
+    "What's your favorite meal of all time?",
+    "If you could travel anywhere right now, where would you go?",
+    "What's one thing you're proud of this week?",
+    "Coffee or tea — and why?",
+    "What's your dream job as a kid?",
+    "What's one app you can't live without?",
+    "What's your favorite weekend activity?",
+    "What's your hidden talent?",
+    "If you could have dinner with anyone, who would it be?",
+    "What's your go-to comfort food?",
+    "What's one thing on your bucket list?",
+    "What's your favorite movie or TV show?",
 ]
 
-user_answers = {}
-
 # ============================================
-# GET ALL TEAM MEMBERS
+# LOGIC
 # ============================================
 
 def get_all_team_members():
@@ -97,217 +88,136 @@ def get_all_team_members():
         for user in users:
             if user["is_bot"] or user["deleted"]:
                 continue
-            try:
-                user_info = app.client.users_info(user=user["id"])
-                email = user_info["user"]["profile"].get("email", "")
-                if email.endswith("@dreamstartlabs.com"):
-                    team_members.append({
-                        "id": user["id"],
-                        "name": user["name"],
-                        "email": email,
-                        "tz": user.get("tz", "Africa/Harare")
-                    })
-                    print(f"   ✅ {user['name']} ({email}) - Timezone: {user.get('tz', 'Africa/Harare')}")
-            except:
-                pass
-        print(f"📊 Total team members: {len(team_members)}")
+            
+            # Check domain (Adjust if your team uses multiple domains)
+            profile = user.get("profile", {})
+            email = profile.get("email", "")
+            
+            if email.endswith("@dreamstartlabs.com"):
+                team_members.append({
+                    "id": user["id"],
+                    "name": user["real_name"] or user["name"],
+                    "tz": user.get("tz", "Africa/Harare")
+                })
         return team_members
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error fetching users: {e}")
         return []
 
-# ============================================
-# SCHEDULE MESSAGE AT USER'S LOCAL TIME
-# ============================================
-
-def schedule_message_at_local_time(user_id, user_tz, message, target_hour, target_minute):
-    try:
-        user_timezone = pytz.timezone(user_tz)
-        now_local = datetime.now(user_timezone)
-        target_time = now_local.replace(hour=target_hour, minute=target_minute, second=0, microsecond=0)
-        if target_time < now_local:
-            target_time += timedelta(days=1)
-        utc_timestamp = int(target_time.astimezone(timezone.utc).timestamp())
-        app.client.chat_scheduleMessage(channel=user_id, text=message, post_at=utc_timestamp)
-        return True
-    except Exception as e:
-        print(f"Error scheduling for {user_id}: {e}")
-        return False
-
-# ============================================
-# SEND MORNING TO ALL (MON-FRI, 9 AM LOCAL)
-# ============================================
-
 def send_morning_to_all():
-    tracker = load_tracker()
-    now = datetime.now(LOCAL_TZ)
-    today = now.date().isoformat()
-    weekday = now.weekday()
-    
-    if weekday in [5, 6]:
-        print("Weekend - No morning messages")
-        return
-    
-    if tracker.get("morning_date") == today:
-        print("Morning already sent today. Skipping.")
-        return
-    
+    tracker = load_json(TRACKER_FILE)
     team_members = get_all_team_members()
-    message = random.choice(MORNING_MESSAGES)
-    count = 0
-    
-    print(f"\n📨 Sending morning greetings to {len(team_members)} people...")
-    for user in team_members:
-        if schedule_message_at_local_time(user["id"], user["tz"], message, 9, 0):
-            count += 1
-            print(f"   ✅ Morning scheduled for {user['name']} at 9 AM {user['tz']}")
-    
-    tracker["morning_date"] = today
-    save_tracker(tracker)
-    print(f"✅ Morning greetings sent to {count} people\n")
 
-# ============================================
-# SEND QUESTIONS TO ALL (MON/WED/FRI, 11 AM LOCAL)
-# ============================================
+    for user in team_members:
+        try:
+            user_tz = pytz.timezone(user["tz"])
+            now_local = datetime.now(user_tz)
+            today = now_local.date().isoformat()
+
+            if now_local.weekday() >= 5: continue # Skip Weekends
+
+            # Check if already sent morning message
+            if tracker.get(user["id"], {}).get("morning") == today:
+                continue
+
+            # Check for 9:00 AM window
+            if now_local.hour == 9 and now_local.minute < 10:
+                message = random.choice(MORNING_MESSAGES)
+                app.client.chat_postMessage(channel=user["id"], text=message)
+                
+                if user["id"] not in tracker: tracker[user["id"]] = {}
+                tracker[user["id"]]["morning"] = today
+                print(f"🌞 Morning sent to {user['name']}")
+
+        except Exception as e:
+            print(f"Error in morning loop: {e}")
+    
+    save_json(TRACKER_FILE, tracker)
 
 def send_questions_to_all():
-    tracker = load_tracker()
-    now = datetime.now(LOCAL_TZ)
-    today = now.date().isoformat()
-    weekday = now.weekday()
-    
-    if weekday not in [0, 2, 4]:
-        print("Not Mon/Wed/Fri - No questions")
-        return
-    
-    if tracker.get("question_date") == today:
-        print("Questions already sent today. Skipping.")
-        return
-    
+    tracker = load_json(TRACKER_FILE)
+    pending = load_json(PENDING_FILE)
     team_members = get_all_team_members()
-    question = random.choice(QUESTIONS)
-    count = 0
-    
-    print(f"\n📨 Sending fun questions to {len(team_members)} people...")
+
     for user in team_members:
-        user_answers[user["id"]] = {
-            "question": question,
-            "name": user["name"]
-        }
-        message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply with your answer!_"
-        if schedule_message_at_local_time(user["id"], user["tz"], message, 11, 0):
-            count += 1
-            print(f"   ✅ Question scheduled for {user['name']} at 11 AM {user['tz']}")
+        try:
+            user_tz = pytz.timezone(user["tz"])
+            now_local = datetime.now(user_tz)
+            today = now_local.date().isoformat()
+
+            # Mon, Wed, Fri only
+            if now_local.weekday() not in [0, 2, 4]:
+                continue
+
+            # Check if already sent question
+            if tracker.get(user["id"], {}).get("question") == today:
+                continue
+
+            # Check for 11:00 AM window
+            if now_local.hour == 11 and now_local.minute < 10:
+                question = random.choice(QUESTIONS)
+                pending[user["id"]] = {"question": question, "name": user["name"]}
+                
+                message = f"💭 *Fun question of the day:*\n\n{question}\n\n_Reply directly to this message to share!_"
+                app.client.chat_postMessage(channel=user["id"], text=message)
+
+                if user["id"] not in tracker: tracker[user["id"]] = {}
+                tracker[user["id"]]["question"] = today
+                print(f"💭 Question sent to {user['name']}")
+
+        except Exception as e:
+            print(f"Error in question loop: {e}")
     
-    tracker["question_date"] = today
-    save_tracker(tracker)
-    print(f"✅ Questions sent to {count} people\n")
+    save_json(TRACKER_FILE, tracker)
+    save_json(PENDING_FILE, pending)
 
 # ============================================
-# HANDLE REPLIES
+# SLACK EVENTS
 # ============================================
 
 @app.event("message")
 def handle_answer(message, say):
     user_id = message.get("user")
-    if message.get("subtype") == "bot_message" or user_id is None:
+    # Only process if it's a DM and not from a bot
+    if message.get("channel_type") != "im" or message.get("subtype") == "bot_message":
         return
-    if user_id in user_answers:
+
+    pending = load_json(PENDING_FILE)
+
+    if user_id in pending:
         answer = message.get("text", "").strip()
-        question = user_answers[user_id]["question"]
-        user_name = user_answers[user_id]["name"]
+        question = pending[user_id]["question"]
+        user_name = pending[user_id]["name"]
+
         try:
+            # Post to shared channel
             app.client.chat_postMessage(
                 channel=WATERCOOLER,
-                text=f"🎉 *{user_name}* answered:\n\n> *Q:* {question}\n> *A:* {answer}"
+                text=f"🎉 *{user_name}* shared an answer:\n\n> *Q:* {question}\n> *A:* {answer}"
             )
-            app.client.chat_postMessage(
-                channel=user_id,
-                text="✅ Thanks! Your answer has been shared in #watercooler!"
-            )
-            del user_answers[user_id]
+            # Confirm to user
+            say("✅ Got it! I've shared your answer in the watercooler channel.")
+            
+            del pending[user_id]
+            save_json(PENDING_FILE, pending)
         except Exception as e:
-            print(f"Error: {e}")
+            print(f"Error posting to watercooler: {e}")
 
 # ============================================
-# SLASH COMMANDS
-# ============================================
-
-@app.command("/send-morning")
-def test_morning(ack, command, client):
-    ack()
-    send_morning_to_all()
-    client.chat_postEphemeral(
-        channel=command["channel_id"],
-        user=command["user_id"],
-        text="✅ Morning greetings scheduled for everyone!"
-    )
-
-@app.command("/send-questions")
-def test_questions(ack, command, client):
-    ack()
-    send_questions_to_all()
-    client.chat_postEphemeral(
-        channel=command["channel_id"],
-        user=command["user_id"],
-        text="✅ Questions scheduled for everyone!"
-    )
-
-# ============================================
-# SCHEDULER - CHECKS EVERY 10 SECONDS
+# RUNTIME
 # ============================================
 
 def run_scheduler():
-    print(f"\n⏰ SCHEDULER STARTED")
-    print(f"   Timezone: Africa/Harare")
-    print(f"   Current time: {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"   Morning: Monday-Friday at 9:00 AM")
-    print(f"   Question: Monday, Wednesday, Friday at 11:00 AM")
-    print(f"   Target: @dreamstartlabs.com users only\n")
-    
+    # Check every 5 mins
+    schedule.every(5).minutes.do(send_morning_to_all)
+    schedule.every(5).minutes.do(send_questions_to_all)
     while True:
-        now = datetime.now(LOCAL_TZ)
-        
-        # Morning at 9:00 AM
-        if now.hour == 9 and now.minute == 0:
-            print(f"\n🔔 9:00 AM - TRIGGERING MORNING GREETINGS")
-            send_morning_to_all()
-            time.sleep(60)
-        
-        # Questions at 11:00 AM
-        if now.hour == 11 and now.minute == 0:
-            print(f"\n🔔 11:00 AM - TRIGGERING FUN QUESTIONS")
-            send_questions_to_all()
-            time.sleep(60)
-        
+        schedule.run_pending()
         time.sleep(10)
 
-# ============================================
-# MAIN
-# ============================================
-
 if __name__ == "__main__":
-    print("=" * 70)
-    print("🚀 TEAM BONDING BOT - WORKING VERSION")
-    print("=" * 70)
-    print(f"   Timezone: Africa/Harare")
-    print(f"   Current time: {datetime.now(LOCAL_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"   Morning: Monday-Friday at 9:00 AM (sends to ALL team members)")
-    print(f"   Question: Monday, Wednesday, Friday at 11:00 AM (sends to ALL team members)")
-    print(f"   Target: @dreamstartlabs.com users only")
-    print(f"   ONE message per day | NO duplicates | NO weekends")
-    print("=" * 70)
-    
-    # Print team members on startup
-    print("\n📊 LOADING TEAM MEMBERS...")
-    members = get_all_team_members()
-    print(f"\n✅ Team loaded: {len(members)} members with @dreamstartlabs.com")
-    
-    # Start scheduler
-    print("\n⏰ Starting scheduler...")
+    print("🚀 Bot starting...")
     threading.Thread(target=run_scheduler, daemon=True).start()
     
-    # Start Slack app
-    print("⚡️ Starting Slack app...\n")
     handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     handler.start()
