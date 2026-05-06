@@ -46,7 +46,7 @@ def save_json(filename, data):
         print(f"❌ Storage Error: {e}")
 
 # ============================================
-# 50+ MORNING GREETINGS
+# 50+ MORNING GREETINGS & QUESTIONS
 # ============================================
 
 MORNING_MESSAGES = [
@@ -102,10 +102,6 @@ MORNING_MESSAGES = [
     "🌤️ The sun is up and so are we. Let's get it!",
     "🥳 Happy morning! Let's make it a celebratory day!"
 ]
-
-# ============================================
-# 50+ TEAM QUESTIONS
-# ============================================
 
 QUESTIONS = [
     "If you could have any superpower for 24 hours, what would it be?",
@@ -202,18 +198,23 @@ def send_messages():
     pending = load_json(PENDING_FILE)
     members = get_all_team_members()
 
-    # Pick the unified question and unified greeting for this 2-minute cycle
-    todays_question = random.choice(QUESTIONS)
-    todays_greeting = random.choice(MORNING_MESSAGES)
-
     for user in members:
         try:
             user_tz = pytz.timezone(user["tz"])
             now_local = datetime.now(user_tz)
-            today = now_local.date().isoformat()
+            today_str = now_local.date().isoformat()
             
-            if user["id"] not in tracker or tracker[user["id"]].get("date") != today:
-                tracker[user["id"]] = {"date": today, "morning": False, "question": False}
+            # --- THE "DATE LOCK" SECRET ---
+            # We use the current date string as a seed. 
+            # This ensures that for this SPECIFIC day, random.choice 
+            # always picks the same item no matter when or where it's called.
+            random.seed(today_str)
+            todays_greeting = random.choice(MORNING_MESSAGES)
+            todays_question = random.choice(QUESTIONS)
+            # -------------------------------
+
+            if user["id"] not in tracker or tracker[user["id"]].get("date") != today_str:
+                tracker[user["id"]] = {"date": today_str, "morning": False, "question": False}
 
             # --- MORNING (9:00 - 9:05) ---
             if now_local.weekday() < 5 and now_local.hour == 9 and now_local.minute < 5:
@@ -242,6 +243,10 @@ def send_messages():
 
         except Exception as e:
             print(f"⚠️ User Error ({user['name']}): {e}")
+        finally:
+            # Reset the random seed so other parts of the app (like random greeting) 
+            # don't get stuck if you use random elsewhere later.
+            random.seed(None)
 
 # ============================================
 # EVENT HANDLER
@@ -282,7 +287,7 @@ def run_scheduler():
         time.sleep(10)
 
 if __name__ == "__main__":
-    print("🚀 Bot starting...")
+    print("🚀 Bot starting with Global Timezone Sync...")
     threading.Thread(target=run_scheduler, daemon=True).start()
     handler = SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN"))
     handler.start()
