@@ -18,7 +18,7 @@ load_dotenv()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
-# Files stored locally (Temporary memory without Volume)
+# Local files (Will act as memory for tracking and lockouts)
 TRACKER_FILE = "sent_tracker.json"
 PENDING_FILE = "pending_answers.json"
 
@@ -162,43 +162,56 @@ def send_messages():
             now_local = datetime.now(user_tz)
             today_str = now_local.date().isoformat()
             
-            # Global Seed Logic
+            # Global Seed Logic (Synchronizes questions across zones)
             random.seed(today_str)
             todays_greeting = random.choice(MORNING_MESSAGES)
             todays_question = random.choice(QUESTIONS)
             random.seed(None)
 
+            # Initialize Tracker with safety flags
             if user["id"] not in tracker:
-                tracker[user["id"]] = {"last_date": "", "morning": False, "question": False}
+                tracker[user["id"]] = {"last_date": "", "morning": False, "question": False, "reminder": False}
             
+            # Reset flags daily
             if tracker[user["id"]]["last_date"] != today_str:
-                tracker[user["id"]].update({"last_date": today_str, "morning": False, "question": False})
+                tracker[user["id"]].update({
+                    "last_date": today_str, 
+                    "morning": False, 
+                    "question": False, 
+                    "reminder": False
+                })
 
-            # Morning Greeting (9:00 AM)
+            # 1. Morning Greeting (9:00 AM Local)
             if now_local.weekday() < 5 and now_local.hour == 9 and now_local.minute < 5:
                 if not tracker[user["id"]]["morning"]:
                     app.client.chat_postMessage(channel=user["id"], text=todays_greeting)
                     tracker[user["id"]]["morning"] = True
                     save_json(TRACKER_FILE, tracker)
 
-            # Question (11:00 AM - Mon, Wed, Fri)
+            # 2. Daily Question (11:00 AM Local - Mon, Wed, Fri)
             if now_local.weekday() in [0, 2, 4] and now_local.hour == 11 and now_local.minute < 5:
                 if not tracker[user["id"]]["question"]:
                     pending[user["id"]] = {"question": todays_question, "name": user["name"]}
                     app.client.chat_postMessage(channel=user["id"], text=f"💭 *Today's Question:*\n\n{todays_question}")
                     tracker[user["id"]]["question"] = True
+                    tracker[user["id"]]["reminder"] = False # Open lock for later reminder
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
 
-            # --- THE REMAINDER (3:00 PM - Mon, Wed, Fri) ---
+            # 3. Guarded Reminder (3:00 PM Local - Mon, Wed, Fri)
             if now_local.weekday() in [0, 2, 4] and now_local.hour == 15 and now_local.minute < 5:
-                if user["id"] in pending:
-                    app.client.chat_postMessage(
-                        channel=user["id"], 
-                        text="🔔 *Friendly Nudge:* Don't forget to share your answer! Others are already chatting in the #watercooler. Just reply here to join."
-                    )
+                # Must be in pending AND must NOT have already received a reminder today
+                if user["id"] in pending and not tracker[user["id"]].get("reminder", False):
+                    
+                    reminder_text = "🔔 *Quick Reminder:* Don't forget to share your answer for today's question! The team is already chatting in the #watercooler. Just reply directly to this message to join in."
+                    
+                    app.client.chat_postMessage(channel=user["id"], text=reminder_text)
+                    
+                    # Flip the switch immediately to block duplicate processes
+                    tracker[user["id"]]["reminder"] = True
+                    save_json(TRACKER_FILE, tracker)
 
-        except Exception as e: print(f"⚠️ Error: {e}")
+        except Exception as e: print(f"⚠️ Scheduling Error: {e}")
 
 @app.event("message")
 def handle_answer(message, say):
@@ -226,5 +239,6 @@ def run_scheduler():
         time.sleep(10)
 
 if __name__ == "__main__":
+    print("🚀 Starting Bot with Anti-Duplicate Reminder Locks...")
     threading.Thread(target=run_scheduler, daemon=True).start()
     SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN")).start()
