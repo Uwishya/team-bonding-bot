@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 import schedule
+from flask import Flask  # <-- Added to satisfy Render's Free Tier
 
 # ============================================
 # INITIALIZATION
@@ -18,9 +19,21 @@ load_dotenv()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
-# Local state tracking files
 TRACKER_FILE = "sent_tracker.json"
 PENDING_FILE = "pending_answers.json"
+
+# --- Dummy Web Server for Render's Free Tier ---
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return "Bot is alive and running!", 200
+
+def run_flask():
+    # Render automatically passes a PORT environment variable
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
+# ============================================
 
 # ============================================
 # CONTENT LISTS
@@ -40,7 +53,6 @@ MOTIVATIONAL_BOOSTS = [
 ]
 
 QUESTIONS = [
-    # --- DreamStart Labs & FinTech Content ---
     "What’s a recent customer success story or feature milestone that made you proud?",
     "If you had to explain financial inclusion to a 10-year-old, what analogy would you use?",
     "What's one thing about digital financial inclusion that you think more people should know?",
@@ -51,7 +63,6 @@ QUESTIONS = [
     "What is one piece of advice you’d give to someone joining a fully remote software team?",
     "Which of our company values (Inclusion, Innovation, Impact) resonated with you most this week?",
     "If you could shadow anyone on the team for a single day to see what they do, who would it be?",
-    # --- Social & Fun Content ---
     "If you could have any superpower for 24 hours, what would it be?",
     "What’s the most 'useless' talent you have?",
     "What is the best professional advice you’ve ever received?",
@@ -128,17 +139,14 @@ def send_messages():
             now_local = datetime.now(user_tz)
             today_str = now_local.date().isoformat()
             
-            # Global Synchronization Seed (Guarantees matching questions globally)
             random.seed(today_str)
             todays_motivation = random.choice(MOTIVATIONAL_BOOSTS)
             todays_question = random.choice(QUESTIONS)
             random.seed(None)
 
-            # Initialize tracking parameters if absent
             if user["id"] not in tracker:
                 tracker[user["id"]] = {"last_date": "", "question": False, "reminder": False}
             
-            # Refresh flags smoothly on a new day switch
             if tracker[user["id"]]["last_date"] != today_str:
                 tracker[user["id"]].update({
                     "last_date": today_str, 
@@ -155,19 +163,17 @@ def send_messages():
                     app.client.chat_postMessage(channel=user["id"], text=combined_text)
                     
                     tracker[user["id"]]["question"] = True
-                    tracker[user["id"]]["reminder"] = False  # Preps baseline state for 15h check
+                    tracker[user["id"]]["reminder"] = False
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
 
-            # --- ANTI-DUPLICATE REMINDER LOCK (3:00 PM Local / 15h - Monday & Friday Only) ---
+            # --- ANTI-DUPLICATE REMINDER LOCK (3:00 PM Local - Monday & Friday Only) ---
             if now_local.weekday() in [0, 4] and now_local.hour == 15 and now_local.minute < 5:
-                # Validates user is pending response and hasn't had a nudge issued yet today
                 if user["id"] in pending and not tracker[user["id"]].get("reminder", False):
                     
-                    reminder_text = "🔔 *Quick Check-in:* Don't forget to share your answer to today's question! Your colleagues are already chatting in the #watercooler. Just reply directly to this message to jump in."
+                    reminder_text = "🔔 *Quick Check-in:* Don't forget to share your answer to today's question! Your colleagues are already chatting in the #watercooler. Just reply directly to this message to join in."
                     app.client.chat_postMessage(channel=user["id"], text=reminder_text)
                     
-                    # Lock out duplicate threads instantly
                     tracker[user["id"]]["reminder"] = True
                     save_json(TRACKER_FILE, tracker)
 
@@ -199,6 +205,10 @@ def run_scheduler():
         time.sleep(10)
 
 if __name__ == "__main__":
-    print("🚀 Starting Team-Bonding Bot on Monday/Friday 11h & 15h local timeline...")
+    print("🚀 Launching Web Server and Scheduling Loops...")
+    # Start the web port listener so Render stays happy for free
+    threading.Thread(target=run_flask, daemon=True).start()
+    # Start the Slack scheduling loop
     threading.Thread(target=run_scheduler, daemon=True).start()
+    
     SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN")).start()
