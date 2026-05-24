@@ -3,7 +3,7 @@ import random
 import time
 import threading
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 from dotenv import load_dotenv
 from slack_bolt import App
@@ -18,97 +18,63 @@ load_dotenv()
 app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
-# Local files (Will act as memory for tracking and lockouts)
+# Local state tracking files
 TRACKER_FILE = "sent_tracker.json"
 PENDING_FILE = "pending_answers.json"
 
 # ============================================
-# CONTENT LISTS (50+ Greetings & 50+ Questions)
+# CONTENT LISTS
 # ============================================
 
-MORNING_MESSAGES = [
-    "🌞 Good morning! Hope you have a fantastic day!", "☀️ Rise and shine! You've got this!",
-    "✨ New day, new opportunities. Let’s make it amazing!", "💪 Good morning team! Time to crush it today!",
-    "🚀 Let’s start the day strong and finish stronger!", "🌅 Small steps lead to big results.",
-    "🌻 Sending you positive vibes!", "🔥 Ready to do great things today?",
-    "🌈 Make today awesome!", "☕ Morning! Hope your coffee is strong!",
-    "🌟 You are capable of amazing things!", "🍀 Wishing you a productive day!",
-    "🙌 High fives all around—it's a brand new day!", "🌊 Ride the wave of productivity.",
-    "⚡ Sparkle and shine, it's work time!", "🎯 Stay focused and awesome today!",
-    "🦋 Spread some positivity.", "💎 You're a gem!",
-    "🎈 Hope your day is bright!", "🧠 Think big, work hard, and stay kind.",
-    "🦁 Channel your inner lion!", "🧗 Keep climbing toward those goals.",
-    "🎶 May your day have a productive rhythm!", "🏙️ Let's build something great!",
-    "🛠️ Time to make magic happen!", "🍃 Take a deep breath and have a calm morning.",
-    "🕯️ Light up the world with your ideas!", "🚲 Keep moving forward.",
-    "🎨 Create something you're proud of.", "🔋 Fully charged and ready to go!",
-    "🧘 Wishing you a focused morning.", "🍍 Stay sweet and keep your head high!",
-    "🤝 Teamwork makes the dream work!", "🏔️ No mountain is too high.",
-    "🍿 Hope your day is a blockbuster!", "🧩 You're a vital piece of this team.",
-    "🛸 To infinity and beyond!", "⚓ Stay grounded and keep sailing.",
-    "🧪 Experiment, learn, and grow!", "📣 You're doing a great job!",
-    "🍦 Hope your day is a treat!", "🏡 Enjoy your workflow today.",
-    "🔑 You hold the key to a successful day!", "🎁 Every day is a gift!",
-    "🏁 Start your engines!", "🌍 Let's make a positive impact!",
-    "🌠 Wishing for your best day yet!", "🌤️ The sun is up and so are we.",
-    "🥳 Happy morning! Let's celebrate the day!"
+MOTIVATIONAL_BOOSTS = [
+    "🚀 Let's start the week strong and focus on driving real impact!",
+    "💡 Innovation thrives on collaboration. Let's make today count!",
+    "🌟 Small steps every day lead to massive results for our clients.",
+    "💪 Success is built by teams who support each other. You've got this!",
+    "✨ Fresh week, fresh opportunities to build something incredible.",
+    "🌍 Every piece of code and every conversation helps empower someone somewhere.",
+    "🎯 Stay focused, stay curious, and let's win together today!",
+    "⚡ Energy and persistence conquer all things. Let's crush it!",
+    "🤝 Stronger together, working smarter every single day.",
+    "🙌 Finish the week strong! Your hard work makes a huge difference."
 ]
 
 QUESTIONS = [
+    # --- DreamStart Labs & FinTech Content ---
+    "What’s a recent customer success story or feature milestone that made you proud?",
+    "If you had to explain financial inclusion to a 10-year-old, what analogy would you use?",
+    "What's one thing about digital financial inclusion that you think more people should know?",
+    "What is your absolute favorite shortcut or tool that keeps your remote work day smooth?",
+    "If our remote team had a signature theme song for our sync meetings, what should it be?",
+    "What's the most rewarding challenge you've tackled since joining DreamStart Labs?",
+    "How do you stay connected with our mission when working deeply on technical tasks?",
+    "What is one piece of advice you’d give to someone joining a fully remote software team?",
+    "Which of our company values (Inclusion, Innovation, Impact) resonated with you most this week?",
+    "If you could shadow anyone on the team for a single day to see what they do, who would it be?",
+    # --- Social & Fun Content ---
     "If you could have any superpower for 24 hours, what would it be?",
     "What’s the most 'useless' talent you have?",
     "What is the best professional advice you’ve ever received?",
     "If you were forced to eat only one meal for life, what would it be?",
-    "What’s your favorite way to 'unplug'?",
-    "If you could instantly become an expert in one subject, what would it be?",
-    "What was your first-ever job, and what did you learn?",
-    "What’s the most interesting place you’ve ever visited?",
+    "What’s your favorite way to 'unplug' after a long day?",
+    "What’s the most interesting place you’ve ever visited or lived in?",
     "If you could time travel, would you go to the past or the future?",
-    "What's a book, movie, or song that changed your thinking?",
-    "Are you a 'total silence' or 'background music' person?",
-    "What is your go-to comfort food on a rainy day?",
-    "What’s the best piece of career advice you’ve ever ignored?",
-    "If you could have dinner with any historical figure, who would it be?",
-    "What’s your favorite thing about your home office setup?",
-    "What is one thing everyone should try at least once?",
+    "Are you a 'total silence' or 'background music' person when writing code or documentation?",
+    "What is your go-to comfort food on a rainy afternoon?",
+    "What’s your favorite thing about your home office or desk setup right now?",
+    "What is one thing you think everyone should try at least once in their life?",
     "What’s the most spontaneous thing you’ve ever done?",
-    "If you could live in any fictional world, which one would it be?",
-    "What’s the best gift you’ve ever received?",
-    "What is your 'guilty pleasure' movie or TV show?",
-    "If you could trade places with any animal, which one would it be?",
-    "What’s a hobby you’ve always wanted to start?",
-    "What’s your favorite local spot?",
-    "If you had to change your first name, what would it be?",
-    "Was there a teacher who had a major impact on you?",
-    "What was your favorite subject in school?",
-    "What’s the most used emoji on your phone right now?",
-    "If you could win an Olympic medal for any sport, what would it be?",
-    "What’s your favorite childhood memory?",
-    "What is the most underrated movie?",
-    "If you could only use three apps, which ones would stay?",
-    "What’s your secret for staying productive?",
-    "If you won the lottery, what’s the first 'unnecessary' thing you’d buy?",
-    "What’s your favorite board game?",
-    "What’s one thing you’re looking forward to this month?",
-    "If you could speak any language fluently, which one would it be?",
-    "What’s the most impressive thing you can cook?",
-    "Do you prefer sunrise or sunset?",
-    "What’s the best concert you’ve ever attended?",
-    "If you could be any age again for one week, what age would it be?",
-    "What’s a trend you’re glad is over?",
+    "If you could instantly speak any language fluently, which one would it be?",
+    "Do you prefer a crisp morning sunrise or a quiet evening sunset?",
+    "What’s the best concert or live performance you’ve ever attended?",
+    "What’s a popular trend you are secretly glad is over?",
     "What’s your favorite way to spend a Saturday morning?",
-    "What is the best thing that happened to you this week?",
-    "If you could be a character in any sitcom, who would it be?",
-    "What’s your 'walk-up' song if you were a pro athlete?",
-    "What is the strangest food combination you enjoy?",
-    "What’s the one thing you can’t travel without?",
-    "If you could open a business tomorrow, what would it be?",
-    "What’s your favorite holiday and why?",
-    "What’s a movie you can quote almost entirely?",
-    "If you could meet your future self, what one question would you ask?",
-    "What is the most beautiful place you have ever seen?",
-    "What is one thing you are really good at, but hate doing?",
-    "What was the first album you ever bought?"
+    "What is the best thing that happened to you this week, big or small?",
+    "What’s your 'walk-up' song if you were a professional athlete entering a stadium?",
+    "What is the strangest food combination you genuinely enjoy?",
+    "If you could open a small brick-and-mortar business tomorrow, what would it be?",
+    "What’s a movie or book you can quote almost entirely from memory?",
+    "What is one thing you are really good at, but absolutely hate doing?"
 ]
 
 # ============================================
@@ -162,56 +128,50 @@ def send_messages():
             now_local = datetime.now(user_tz)
             today_str = now_local.date().isoformat()
             
-            # Global Seed Logic (Synchronizes questions across zones)
+            # Global Synchronization Seed (Guarantees matching questions globally)
             random.seed(today_str)
-            todays_greeting = random.choice(MORNING_MESSAGES)
+            todays_motivation = random.choice(MOTIVATIONAL_BOOSTS)
             todays_question = random.choice(QUESTIONS)
             random.seed(None)
 
-            # Initialize Tracker with safety flags
+            # Initialize tracking parameters if absent
             if user["id"] not in tracker:
-                tracker[user["id"]] = {"last_date": "", "morning": False, "question": False, "reminder": False}
+                tracker[user["id"]] = {"last_date": "", "question": False, "reminder": False}
             
-            # Reset flags daily
+            # Refresh flags smoothly on a new day switch
             if tracker[user["id"]]["last_date"] != today_str:
                 tracker[user["id"]].update({
                     "last_date": today_str, 
-                    "morning": False, 
                     "question": False, 
                     "reminder": False
                 })
 
-            # 1. Morning Greeting (9:00 AM Local)
-            if now_local.weekday() < 5 and now_local.hour == 9 and now_local.minute < 5:
-                if not tracker[user["id"]]["morning"]:
-                    app.client.chat_postMessage(channel=user["id"], text=todays_greeting)
-                    tracker[user["id"]]["morning"] = True
-                    save_json(TRACKER_FILE, tracker)
-
-            # 2. Daily Question (11:00 AM Local - Mon, Wed, Fri)
-            if now_local.weekday() in [0, 2, 4] and now_local.hour == 11 and now_local.minute < 5:
+            # --- COMBINED MOTIVATION + QUESTION (11:00 AM Local - Monday & Friday Only) ---
+            if now_local.weekday() in [0, 4] and now_local.hour == 11 and now_local.minute < 5:
                 if not tracker[user["id"]]["question"]:
                     pending[user["id"]] = {"question": todays_question, "name": user["name"]}
-                    app.client.chat_postMessage(channel=user["id"], text=f"💭 *Today's Question:*\n\n{todays_question}")
+                    
+                    combined_text = f"{todays_motivation}\n\n💭 *Today's Question:*\n{todays_question}"
+                    app.client.chat_postMessage(channel=user["id"], text=combined_text)
+                    
                     tracker[user["id"]]["question"] = True
-                    tracker[user["id"]]["reminder"] = False # Open lock for later reminder
+                    tracker[user["id"]]["reminder"] = False  # Preps baseline state for 15h check
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
 
-            # 3. Guarded Reminder (3:00 PM Local - Mon, Wed, Fri)
-            if now_local.weekday() in [0, 2, 4] and now_local.hour == 15 and now_local.minute < 5:
-                # Must be in pending AND must NOT have already received a reminder today
+            # --- ANTI-DUPLICATE REMINDER LOCK (3:00 PM Local / 15h - Monday & Friday Only) ---
+            if now_local.weekday() in [0, 4] and now_local.hour == 15 and now_local.minute < 5:
+                # Validates user is pending response and hasn't had a nudge issued yet today
                 if user["id"] in pending and not tracker[user["id"]].get("reminder", False):
                     
-                    reminder_text = "🔔 *Quick Reminder:* Don't forget to share your answer for today's question! The team is already chatting in the #watercooler. Just reply directly to this message to join in."
-                    
+                    reminder_text = "🔔 *Quick Check-in:* Don't forget to share your answer to today's question! Your colleagues are already chatting in the #watercooler. Just reply directly to this message to jump in."
                     app.client.chat_postMessage(channel=user["id"], text=reminder_text)
                     
-                    # Flip the switch immediately to block duplicate processes
+                    # Lock out duplicate threads instantly
                     tracker[user["id"]]["reminder"] = True
                     save_json(TRACKER_FILE, tracker)
 
-        except Exception as e: print(f"⚠️ Scheduling Error: {e}")
+        except Exception as e: print(f"⚠️ Scheduling Loop Exception: {e}")
 
 @app.event("message")
 def handle_answer(message, say):
@@ -239,6 +199,6 @@ def run_scheduler():
         time.sleep(10)
 
 if __name__ == "__main__":
-    print("🚀 Starting Bot with Anti-Duplicate Reminder Locks...")
+    print("🚀 Starting Team-Bonding Bot on Monday/Friday 11h & 15h local timeline...")
     threading.Thread(target=run_scheduler, daemon=True).start()
     SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN")).start()
