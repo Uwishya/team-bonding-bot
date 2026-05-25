@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 import schedule
-from flask import Flask  # <-- Added to satisfy Render's Free Tier
+from flask import Flask
 
 # ============================================
 # INITIALIZATION
@@ -30,7 +30,6 @@ def home():
     return "Bot is alive and running!", 200
 
 def run_flask():
-    # Render automatically passes a PORT environment variable
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host="0.0.0.0", port=port)
 # ============================================
@@ -154,8 +153,8 @@ def send_messages():
                     "reminder": False
                 })
 
-            # --- COMBINED MOTIVATION + QUESTION (11:00 AM Local - Monday & Friday Only) ---
-            if now_local.weekday() in [0, 4] and now_local.hour == 11 and now_local.minute < 5:
+            # --- BULLETPROOF QUESTION TRIGGER (Anytime after 11:00 AM local time) ---
+            if now_local.weekday() in [0, 4] and now_local.hour >= 11:
                 if not tracker[user["id"]]["question"]:
                     pending[user["id"]] = {"question": todays_question, "name": user["name"]}
                     
@@ -163,12 +162,11 @@ def send_messages():
                     app.client.chat_postMessage(channel=user["id"], text=combined_text)
                     
                     tracker[user["id"]]["question"] = True
-                    tracker[user["id"]]["reminder"] = False
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
 
-            # --- ANTI-DUPLICATE REMINDER LOCK (3:00 PM Local - Monday & Friday Only) ---
-            if now_local.weekday() in [0, 4] and now_local.hour == 15 and now_local.minute < 5:
+            # --- BULLETPROOF REMINDER TRIGGER (Anytime after 3:00 PM / 15h local time) ---
+            if now_local.weekday() in [0, 4] and now_local.hour >= 15:
                 if user["id"] in pending and not tracker[user["id"]].get("reminder", False):
                     
                     reminder_text = "🔔 *Quick Check-in:* Don't forget to share your answer to today's question! Your colleagues are already chatting in the #watercooler. Just reply directly to this message to join in."
@@ -206,9 +204,7 @@ def run_scheduler():
 
 if __name__ == "__main__":
     print("🚀 Launching Web Server and Scheduling Loops...")
-    # Start the web port listener so Render stays happy for free
     threading.Thread(target=run_flask, daemon=True).start()
-    # Start the Slack scheduling loop
     threading.Thread(target=run_scheduler, daemon=True).start()
     
     SocketModeHandler(app, os.environ.get("SLACK_APP_TOKEN")).start()
