@@ -153,8 +153,8 @@ def send_messages():
                     "reminder": False
                 })
 
-            # --- BULLETPROOF QUESTION TRIGGER (Anytime after 11:00 AM local time) ---
-            if now_local.weekday() in [0, 4] and now_local.hour >= 11:
+            # --- STRICT QUESTION WINDOW: Only Friday/Monday between 11:00 AM and 11:30 AM ---
+            if now_local.weekday() in [0, 4] and now_local.hour == 11 and now_local.minute < 30:
                 if not tracker[user["id"]]["question"]:
                     pending[user["id"]] = {"question": todays_question, "name": user["name"]}
                     
@@ -165,8 +165,8 @@ def send_messages():
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
 
-            # --- BULLETPROOF REMINDER TRIGGER (Anytime after 3:00 PM / 15h local time) ---
-            if now_local.weekday() in [0, 4] and now_local.hour >= 15:
+            # --- STRICT REMINDER WINDOW: Only Friday/Monday between 3:00 PM and 3:30 PM ---
+            if now_local.weekday() in [0, 4] and now_local.hour == 15 and now_local.minute < 30:
                 if user["id"] in pending and not tracker[user["id"]].get("reminder", False):
                     
                     reminder_text = "🔔 *Quick Check-in:* Don't forget to share your answer to today's question! Your colleagues are already chatting in the #watercooler. Just reply directly to this message to join in."
