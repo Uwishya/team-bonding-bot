@@ -21,6 +21,7 @@ WATERCOOLER = os.environ.get("WATERCOOLER_CHANNEL_ID")
 
 TRACKER_FILE = "sent_tracker.json"
 PENDING_FILE = "pending_answers.json"
+USED_QUESTIONS_FILE = "used_questions.json"
 
 # --- Dummy Web Server for Render's Free Tier ---
 flask_app = Flask(__name__)
@@ -80,7 +81,6 @@ QUESTIONS = [
     "What’s a popular trend you are secretly glad is over?",
     "What’s your favorite way to spend a Saturday morning?",
     "What is the best thing that happened to you this week, big or small?",
-    "What’s your 'walk-up' song if you were a professional athlete entering a stadium?",
     "What is the strangest food combination you genuinely enjoy?",
     "If you could open a small brick-and-mortar business tomorrow, what would it be?",
     "What’s a movie or book you can quote almost entirely from memory?",
@@ -130,17 +130,34 @@ def get_all_team_members():
 def send_messages():
     tracker = load_json(TRACKER_FILE)
     pending = load_json(PENDING_FILE)
+    used_questions = load_json(USED_QUESTIONS_FILE)
     members = get_all_team_members()
+    
+    today_str = datetime.now().date().isoformat()
+    
+    # --- EXHAUSTION VAULT LOGIC ---
+    # Filter out questions we have already asked
+    available_questions = [q for q in QUESTIONS if q not in used_questions]
+    
+    # Reset pool if all questions have been asked
+    if not available_questions:
+        print("🔄 All questions in the pool have been used! Resetting vault...")
+        used_questions = {}
+        available_questions = QUESTIONS
+        save_json(USED_QUESTIONS_FILE, used_questions)
+
+    # Deterministically lock today's single question so all timezones share it
+    random.seed(today_str)
+    todays_question = random.choice(available_questions)
+    random.seed(None)
 
     for user in members:
         try:
             user_tz = pytz.timezone(user["tz"])
             now_local = datetime.now(user_tz)
-            today_str = now_local.date().isoformat()
             
             random.seed(today_str)
             todays_motivation = random.choice(MOTIVATIONAL_BOOSTS)
-            todays_question = random.choice(QUESTIONS)
             random.seed(None)
 
             if user["id"] not in tracker:
@@ -153,7 +170,7 @@ def send_messages():
                     "reminder": False
                 })
 
-            # --- STRICT QUESTION WINDOW: Only Friday/Monday between 11:00 AM and 11:30 AM ---
+            # --- STRICT QUESTION WINDOW: Monday/Friday 11:00 AM to 11:30 AM ---
             if now_local.weekday() in [0, 4] and now_local.hour == 11 and now_local.minute < 30:
                 if not tracker[user["id"]]["question"]:
                     pending[user["id"]] = {"question": todays_question, "name": user["name"]}
@@ -162,10 +179,15 @@ def send_messages():
                     app.client.chat_postMessage(channel=user["id"], text=combined_text)
                     
                     tracker[user["id"]]["question"] = True
+                    used_questions[todays_question] = today_str  # Mark question as used
+                    
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
+                    save_json(USED_QUESTIONS_FILE, used_questions)
+                    
+                    print(f"✅ SENT QUESTION TO: {user['name']} ({user['id']}) at {now_local.strftime('%I:%M %p')}")
 
-            # --- STRICT REMINDER WINDOW: Only Friday/Monday between 3:00 PM and 3:30 PM ---
+            # --- STRICT REMINDER WINDOW: Monday/Friday 3:00 PM to 3:30 PM ---
             if now_local.weekday() in [0, 4] and now_local.hour == 15 and now_local.minute < 30:
                 if user["id"] in pending and not tracker[user["id"]].get("reminder", False):
                     
@@ -174,8 +196,15 @@ def send_messages():
                     
                     tracker[user["id"]]["reminder"] = True
                     save_json(TRACKER_FILE, tracker)
+                    
+                    print(f"🔔 SENT REMINDER TO: {user['name']} ({user['id']}) at {now_local.strftime('%I:%M %p')}")
 
-        except Exception as e: print(f"⚠️ Scheduling Loop Exception: {e}")
+        except Exception as e: 
+            print(f"⚠️ Scheduling Loop Exception for {user.get('name', 'Unknown')}: {e}")
+
+# ============================================
+# INCOMING SLACK HANDLERS
+# ============================================
 
 @app.event("message")
 def handle_answer(message, say):
@@ -195,6 +224,10 @@ def handle_answer(message, say):
         say("✅ Your answer has been shared in the watercooler! Thanks for participating.")
         del pending[user_id]
         save_json(PENDING_FILE, pending)
+
+# ============================================
+# THREAD RUNNERS
+# ============================================
 
 def run_scheduler():
     schedule.every(2).minutes.do(send_messages)
