@@ -40,51 +40,49 @@ def run_flask():
 # ============================================
 
 MOTIVATIONAL_BOOSTS = [
-    "🚀 Let's start the week strong and focus on driving real impact!",
-    "💡 Innovation thrives on collaboration. Let's make today count!",
-    "🌟 Small steps every day lead to massive results for our clients.",
-    "💪 Success is built by teams who support each other. You've got this!",
-    "✨ Fresh week, fresh opportunities to build something incredible.",
-    "🌍 Every piece of code and every conversation helps empower someone somewhere.",
-    "🎯 Stay focused, stay curious, and let's win together today!",
-    "⚡ Energy and persistence conquer all things. Let's crush it!",
-    "🤝 Stronger together, working smarter every single day.",
-    "🙌 Finish the week strong! Your hard work makes a huge difference."
+    "🌍 Let's start the week strong, keeping our focus on empowering the communities we serve!",
+    "💡 Innovation thrives when we listen to our users. Let's make today count!",
+    "🌟 Small, deliberate operational steps lead to massive life-changing results for our clients.",
+    "💪 Success is built by a global team that supports each other. You've got this!",
+    "✨ Fresh week, fresh opportunities to create meaningful financial inclusion.",
+    "🎯 Every project milestone and every conversation helps unlock potential for someone somewhere.",
+    "🤝 Stronger together, working smarter across borders every single day.",
+    "🙌 Thank you for your dedication this week! Your hard work makes a real-world difference."
 ]
 
 QUESTIONS = [
-    "What’s a recent customer success story or feature milestone that made you proud?",
+    "What’s a recent customer success story or project milestone that made you proud?",
     "If you had to explain financial inclusion to a 10-year-old, what analogy would you use?",
-    "What's one thing about digital financial inclusion that you think more people should know?",
-    "What is your absolute favorite shortcut or tool that keeps your remote work day smooth?",
-    "If our remote team had a signature theme song for our sync meetings, what should it be?",
+    "What's one aspect of digital financial tools that you think more people should understand?",
+    "What is your absolute favorite shortcut or routine that keeps your remote work day smooth?",
+    "If our remote team had a signature walk-up song for our sync meetings, what should it be?",
     "What's the most rewarding challenge you've tackled since joining DreamStart Labs?",
-    "How do you stay connected with our mission when working deeply on technical tasks?",
-    "What is one piece of advice you’d give to someone joining a fully remote software team?",
+    "How do you stay connected with our mission during your busy day-to-day tasks?",
+    "What is one piece of advice you’d give to someone joining a fully remote, global team?",
     "Which of our company values (Inclusion, Innovation, Impact) resonated with you most this week?",
-    "If you could shadow anyone on the team for a single day to see what they do, who would it be?",
-    "If you could have any superpower for 24 hours, what would it be?",
-    "What’s the most 'useless' talent you have?",
-    "What is the best professional advice you’ve ever received?",
-    "If you were forced to eat only one meal for life, what would it be?",
-    "What’s your favorite way to 'unplug' after a long day?",
+    "If you could shadow anyone on the team for a single day to see what their day looks like, who would it be?",
+    "If you could have any superpower for 24 hours to help your productivity, what would it be?",
+    "What is the best professional advice you’ve ever received that sticks with you?",
+    "If you were forced to eat only one meal for the rest of your life, what would it be?",
+    "What’s your favorite way to completely 'unplug' and recharge after a busy week?",
     "What’s the most interesting place you’ve ever visited or lived in?",
-    "If you could time travel, would you go to the past or the future?",
-    "Are you a 'total silence' or 'background music' person when writing code or documentation?",
-    "What is your go-to comfort food on a rainy afternoon?",
-    "What’s your favorite thing about your home office or desk setup right now?",
-    "What is one thing you think everyone should try at least once in their life?",
-    "What’s the most spontaneous thing you’ve ever done?",
-    "If you could instantly speak any language fluently, which one would it be?",
+    "If you could safely time travel, would you go to the past or the future?",
+    "Are you a 'total silence' or a 'background music' person when you need to focus deeply?",
+    "What is your go-to comfort food or beverage on a rainy afternoon?",
+    "What’s your 'walk-up' song if you were a professional athlete entering a stadium?",
+    "What’s your favorite thing about your current desk or workspace setup?",
+    "What is one life experience you think everyone should try at least once?",
+    "What’s the most spontaneous or adventurous thing you’ve ever done?",
+    "If you could instantly speak any global language fluently, which one would it be?",
     "Do you prefer a crisp morning sunrise or a quiet evening sunset?",
-    "What’s the best concert or live performance you’ve ever attended?",
-    "What’s a popular trend you are secretly glad is over?",
-    "What’s your favorite way to spend a Saturday morning?",
+    "What’s the best live performance, concert, or cultural event you’ve ever attended?",
+    "What’s a popular trend you are secretly very glad is finally over?",
+    "What’s your favorite, ideal way to spend a Saturday morning?",
     "What is the best thing that happened to you this week, big or small?",
     "What is the strangest food combination you genuinely enjoy?",
-    "If you could open a small brick-and-mortar business tomorrow, what would it be?",
+    "If you could open a small local business tomorrow just for fun, what would it be?",
     "What’s a movie or book you can quote almost entirely from memory?",
-    "What is one thing you are really good at, but absolutely hate doing?"
+    "What is one thing you are surprisingly good at, but absolutely hate doing?"
 ]
 
 # ============================================
@@ -133,9 +131,10 @@ def send_messages():
     used_questions = load_json(USED_QUESTIONS_FILE)
     members = get_all_team_members()
     
-    today_str = datetime.now().date().isoformat()
+    # 🌟 CRITICAL FIX: Lock the question selection globally to the SERVER's date.
+    # This ensures every timezone pulls the exact same question today.
+    server_today_str = datetime.now().date().isoformat()
     
-    # --- EXHAUSTION VAULT LOGIC ---
     # Filter out questions we have already asked
     available_questions = [q for q in QUESTIONS if q not in used_questions]
     
@@ -146,8 +145,8 @@ def send_messages():
         available_questions = QUESTIONS
         save_json(USED_QUESTIONS_FILE, used_questions)
 
-    # Deterministically lock today's single question so all timezones share it
-    random.seed(today_str)
+    # Lock the seed using the synchronized server date string
+    random.seed(server_today_str)
     todays_question = random.choice(available_questions)
     random.seed(None)
 
@@ -155,17 +154,18 @@ def send_messages():
         try:
             user_tz = pytz.timezone(user["tz"])
             now_local = datetime.now(user_tz)
-            
-            random.seed(today_str)
+            user_today_str = now_local.date().isoformat() # Used strictly for tracking individual days
+
+            random.seed(server_today_str)  # Synchronized motivation seed
             todays_motivation = random.choice(MOTIVATIONAL_BOOSTS)
             random.seed(None)
 
             if user["id"] not in tracker:
                 tracker[user["id"]] = {"last_date": "", "question": False, "reminder": False}
             
-            if tracker[user["id"]]["last_date"] != today_str:
+            if tracker[user["id"]]["last_date"] != user_today_str:
                 tracker[user["id"]].update({
-                    "last_date": today_str, 
+                    "last_date": user_today_str, 
                     "question": False, 
                     "reminder": False
                 })
@@ -179,13 +179,13 @@ def send_messages():
                     app.client.chat_postMessage(channel=user["id"], text=combined_text)
                     
                     tracker[user["id"]]["question"] = True
-                    used_questions[todays_question] = today_str  # Mark question as used
+                    used_questions[todays_question] = user_today_str  # Track that this question was used
                     
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
                     save_json(USED_QUESTIONS_FILE, used_questions)
                     
-                    print(f"✅ SENT QUESTION TO: {user['name']} ({user['id']}) at {now_local.strftime('%I:%M %p')}")
+                    print(f"✅ SENT UNIFIED QUESTION TO: {user['name']} ({user['id']}) at {now_local.strftime('%I:%M %p')}")
 
             # --- STRICT REMINDER WINDOW: Monday/Friday 3:00 PM to 3:30 PM ---
             if now_local.weekday() in [0, 4] and now_local.hour == 15 and now_local.minute < 30:
