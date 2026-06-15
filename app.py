@@ -77,10 +77,6 @@ QUESTIONS = [
     "Do you prefer a crisp morning sunrise or a quiet evening sunset?",
     "What’s the best live performance, concert, or cultural event you’ve ever attended?",
     "What’s a popular trend you are secretly very glad is finally over?",
-    "What’s your favorite, ideal way to spend a Saturday morning?",
-    "What is the best thing that happened to you this week, big or small?",
-    "What is the strangest food combination you genuinely enjoy?",
-    "If you could open a small local business tomorrow just for fun, what would it be?",
     "What’s a movie or book you can quote almost entirely from memory?",
     "What is one thing you are surprisingly good at, but absolutely hate doing?"
 ]
