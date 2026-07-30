@@ -40,13 +40,6 @@ def run_flask():
 # ============================================
 
 MOTIVATIONAL_BOOSTS = [
-    "🌍 Let's start the week strong, keeping our focus on empowering the communities we serve!",
-    "💡 Innovation thrives when we listen to our users. Let's make today count!",
-    "🌟 Small, deliberate operational steps lead to massive life-changing results for our clients.",
-    "💪 Success is built by a global team that supports each other. You've got this!",
-    "✨ Fresh week, fresh opportunities to create meaningful financial inclusion.",
-    "🎯 Every project milestone and every conversation helps unlock potential for someone somewhere.",
-    "🤝 Stronger together, working smarter across borders every single day.",
     "🙌 Thank you for your dedication this week! Your hard work makes a real-world difference."
 ]
 
@@ -66,19 +59,7 @@ QUESTIONS = [
     "If you were forced to eat only one meal for the rest of your life, what would it be?",
     "What’s your favorite way to completely 'unplug' and recharge after a busy week?",
     "What’s the most interesting place you’ve ever visited or lived in?",
-    "If you could safely time travel, would you go to the past or the future?",
-    "Are you a 'total silence' or a 'background music' person when you need to focus deeply?",
-    "What is your go-to comfort food or beverage on a rainy afternoon?",
-    "What’s your 'walk-up' song if you were a professional athlete entering a stadium?",
-    "What’s your favorite thing about your current desk or workspace setup?",
-    "What is one life experience you think everyone should try at least once?",
-    "What’s the most spontaneous or adventurous thing you’ve ever done?",
-    "If you could instantly speak any global language fluently, which one would it be?",
-    "Do you prefer a crisp morning sunrise or a quiet evening sunset?",
-    "What’s the best live performance, concert, or cultural event you’ve ever attended?",
-    "What’s a popular trend you are secretly very glad is finally over?",
-    "What’s a movie or book you can quote almost entirely from memory?",
-    "What is one thing you are surprisingly good at, but absolutely hate doing?"
+    "If you could safely time travel, would you go to the past or the future?"
 ]
 
 # ============================================
