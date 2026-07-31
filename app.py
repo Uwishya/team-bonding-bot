@@ -23,17 +23,21 @@ TRACKER_FILE = "sent_tracker.json"
 PENDING_FILE = "pending_answers.json"
 USED_QUESTIONS_FILE = "used_questions.json"
 
-# --- Dummy Web Server for Render's Free Tier ---
+# --- Web Server & Webhook Trigger for Render ---
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
     return "Bot is alive and running!", 200
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
-# ============================================
+@flask_app.route('/trigger-send', methods=['GET', 'POST'])
+def trigger_send():
+    """Endpoint to manually or via cron-job force a message check."""
+    try:
+        send_messages()
+        return "Message check executed successfully!", 200
+    except Exception as e:
+        return f"Error executing send_messages: {e}", 500
 
 # ============================================
 # CONTENT LISTS
@@ -48,12 +52,10 @@ QUESTIONS = [
     "If you had to explain financial inclusion to a 10-year-old, what analogy would you use?",
     "What's one aspect of digital financial tools that you think more people should understand?",
     "What is your absolute favorite shortcut or routine that keeps your remote work day smooth?",
-    "If our remote team had a signature walk-up song for our sync meetings, what should it be?",
     "What's the most rewarding challenge you've tackled since joining DreamStart Labs?",
     "How do you stay connected with our mission during your busy day-to-day tasks?",
     "What is one piece of advice you’d give to someone joining a fully remote, global team?",
     "Which of our company values (Inclusion, Innovation, Impact) resonated with you most this week?",
-    "If you could shadow anyone on the team for a single day to see what their day looks like, who would it be?",
     "If you could have any superpower for 24 hours to help your productivity, what would it be?",
     "What is the best professional advice you’ve ever received that sticks with you?",
     "If you were forced to eat only one meal for the rest of your life, what would it be?",
@@ -108,21 +110,16 @@ def send_messages():
     used_questions = load_json(USED_QUESTIONS_FILE)
     members = get_all_team_members()
     
-    # 🌟 CRITICAL FIX: Lock the question selection globally to the SERVER's date.
-    # This ensures every timezone pulls the exact same question today.
     server_today_str = datetime.now().date().isoformat()
     
-    # Filter out questions we have already asked
     available_questions = [q for q in QUESTIONS if q not in used_questions]
     
-    # Reset pool if all questions have been asked
     if not available_questions:
         print("🔄 All questions in the pool have been used! Resetting vault...")
         used_questions = {}
         available_questions = QUESTIONS
         save_json(USED_QUESTIONS_FILE, used_questions)
 
-    # Lock the seed using the synchronized server date string
     random.seed(server_today_str)
     todays_question = random.choice(available_questions)
     random.seed(None)
@@ -131,9 +128,9 @@ def send_messages():
         try:
             user_tz = pytz.timezone(user["tz"])
             now_local = datetime.now(user_tz)
-            user_today_str = now_local.date().isoformat() # Used strictly for tracking individual days
+            user_today_str = now_local.date().isoformat()
 
-            random.seed(server_today_str)  # Synchronized motivation seed
+            random.seed(server_today_str)
             todays_motivation = random.choice(MOTIVATIONAL_BOOSTS)
             random.seed(None)
 
@@ -147,7 +144,7 @@ def send_messages():
                     "reminder": False
                 })
 
-            # --- STRICT QUESTION WINDOW: Monday/Friday 11:00 AM to 11:30 AM ---
+            # --- QUESTION WINDOW: Monday/Friday 11:00 AM to 11:30 AM ---
             if now_local.weekday() in [0, 4] and now_local.hour == 11 and now_local.minute < 30:
                 if not tracker[user["id"]]["question"]:
                     pending[user["id"]] = {"question": todays_question, "name": user["name"]}
@@ -156,7 +153,7 @@ def send_messages():
                     app.client.chat_postMessage(channel=user["id"], text=combined_text)
                     
                     tracker[user["id"]]["question"] = True
-                    used_questions[todays_question] = user_today_str  # Track that this question was used
+                    used_questions[todays_question] = user_today_str
                     
                     save_json(TRACKER_FILE, tracker)
                     save_json(PENDING_FILE, pending)
@@ -164,7 +161,7 @@ def send_messages():
                     
                     print(f"✅ SENT UNIFIED QUESTION TO: {user['name']} ({user['id']}) at {now_local.strftime('%I:%M %p')}")
 
-            # --- STRICT REMINDER WINDOW: Monday/Friday 3:00 PM to 3:30 PM ---
+            # --- REMINDER WINDOW: Monday/Friday 3:00 PM to 3:30 PM ---
             if now_local.weekday() in [0, 4] and now_local.hour == 15 and now_local.minute < 30:
                 if user["id"] in pending and not tracker[user["id"]].get("reminder", False):
                     
@@ -205,6 +202,10 @@ def handle_answer(message, say):
 # ============================================
 # THREAD RUNNERS
 # ============================================
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
 
 def run_scheduler():
     schedule.every(2).minutes.do(send_messages)
