@@ -44,7 +44,10 @@ def trigger_send():
 # ============================================
 
 MOTIVATIONAL_BOOSTS = [
-    "🙌 Thank you for your dedication this week! Your hard work makes a real-world difference."
+    "You are a star ⭐!",
+    "💡 Thanks for driving innovation and bringing great ideas to the table.",
+    "✨ Taking a quick pause to celebrate your continuous impact on our mission!",
+    "⭐ Your focus and problem-solving keep moving us forward—thank you!"
 ]
 
 QUESTIONS = [
@@ -55,13 +58,25 @@ QUESTIONS = [
     "What's the most rewarding challenge you've tackled since joining DreamStart Labs?",
     "How do you stay connected with our mission during your busy day-to-day tasks?",
     "What is one piece of advice you’d give to someone joining a fully remote, global team?",
-    "Which of our company values (Inclusion, Innovation, Impact) resonated with you most this week?",
-    "If you could have any superpower for 24 hours to help your productivity, what would it be?",
+    "Which of our company values (Inclusion, Innovation, Impact) resonated with you most recently?",
     "What is the best professional advice you’ve ever received that sticks with you?",
+    "What is a common myth or misconception about your specific role or field that you wish people knew?",
+    "What’s a problem you solved recently—big or small—that you felt really proud of figuring out?",
+    "What’s the most unusual or funny work habit you’ve developed since working remotely?",
+    "If you had to delete every app on your phone except for three, which three are keeping their spot?",
+    "Are you a 'type out a full paragraph' person or a 'send five short messages in a row' person?",
+    "What’s a keyboard shortcut or tech trick you learned that legitimately changed your daily workflow?",
+    "If your current project or work style had a video game soundtrack, what kind of music would be playing?",
+    "If you could have any superpower for 24 hours to help your productivity, what would it be?",
+    "If you were forced to enter a reality TV competition, which one do you think you’d actually have a chance of winning?",
+    "If a movie was made about your career journey so far, what genre would it be and who plays you?",
+    "If you could instantly teleport to any location for just your 1-hour lunch break today, where are you going?",
+    "If you could safely time travel, would you go to the past or the future?",
     "If you were forced to eat only one meal for the rest of your life, what would it be?",
-    "What’s your favorite way to completely 'unplug' and recharge after a busy week?",
+    "What’s your favorite way to completely 'unplug' and recharge after a busy day?",
     "What’s the most interesting place you’ve ever visited or lived in?",
-    "If you could safely time travel, would you go to the past or the future?"
+    "If you could teach a 10-minute masterclass on any non-work topic, what would it be?",
+    "What’s the best book, podcast, or documentary you’ve consumed recently that stayed with you?"
 ]
 
 # ============================================
