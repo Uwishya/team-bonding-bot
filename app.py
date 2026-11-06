@@ -862,6 +862,10 @@ def health():
 @flask_app.route("/trigger", methods=["POST"])
 def trigger_campaign():
     supplied_secret = request.headers.get("X-Scheduler-Secret", "")
+    logger.warning(
+        "Scheduler auth diagnostic: header_present=%s, supplied_length=%d, expected_length=%d",
+        bool(supplied_secret), len(supplied_secret), len(SCHEDULER_SECRET)
+    )
     if not hmac.compare_digest(supplied_secret, SCHEDULER_SECRET):
         return {"status": "error", "message": "Unauthorized"}, 401
 
