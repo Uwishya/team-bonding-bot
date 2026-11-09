@@ -5,7 +5,7 @@ import random
 import logging
 import threading
 import hmac
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -434,10 +434,20 @@ def build_campaign_blocks(campaign):
         blocks.append({
             "type": "section",
             "text": {"type": "mrkdwn", "text": (
-                "📊 *Today's poll is now in the Watercooler channel.*\n"
-                "Vote there using the buttons below the poll. "
-                "Your individual vote is private, and you can change it."
+                "📊 *Today's poll*\n"
+                + escape_slack_text(campaign["poll"]["question"])
+                + "\n_Vote privately below. The first vote will open this poll "
+                  "in #watercooler for everyone to join._"
             )}
+        })
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text", "text": str(option), "emoji": True},
+                "action_id": f"watercooler_poll_vote_{index}",
+                "value": json.dumps({"campaign_id": campaign["campaign_id"], "option_index": index})
+            } for index, option in enumerate(campaign["poll"]["options"])]
         })
     else:
         raise ValueError("Unknown campaign activity type.")
@@ -575,38 +585,61 @@ def create_or_get_delivery(campaign_id, user_id, campaign):
     return result.data[0]
 
 
-def send_campaign(day_name, campaign_date=None):
+def get_recipients_with_timezones():
+    """Get channel members and their Slack profile time zones."""
+    member_ids = set(get_channel_members())
+    result = []
+    cursor = None
+    while True:
+        args = {"limit": 200}
+        if cursor:
+            args["cursor"] = cursor
+        response = app.client.users_list(**args)
+        for user in response.get("members", []):
+            user_id = user.get("id")
+            if user_id not in member_ids:
+                continue
+            tz_name = user.get("tz")
+            try:
+                tz = ZoneInfo(tz_name) if tz_name else None
+            except (KeyError, ValueError):
+                tz = None
+            if tz is None:
+                logger.warning("Skipping Slack user %s: missing/invalid timezone %r", user_id, tz_name)
+                continue
+            result.append((user_id, tz))
+        cursor = response.get("response_metadata", {}).get("next_cursor")
+        if not cursor:
+            break
+    return result
+
+
+def send_campaign(day_name, campaign_date=None, recipients=None):
+    """Deliver a shared campaign only to the specified recipients.
+
+    The scheduler supplies eligible users; do not broadcast globally from /trigger.
+    """
     if day_name not in ("monday", "friday"):
         raise ValueError("Choose monday or friday.")
+    if recipients is None:
+        raise ValueError("Explicit recipients are required for safe local-time delivery.")
+    if not recipients:
+        return {"sent": 0, "skipped_already_sent": 0, "failed": [], "recipients_found": 0}
 
     campaign_row = get_campaign(day_name, campaign_date)
     campaign = campaign_to_payload(campaign_row)
     campaign_id = campaign["campaign_id"]
-
-    if campaign["activity_type"] == "poll":
-        publish_or_update_channel_poll(campaign)
-
-    recipients = get_channel_members()
-    if not recipients:
-        raise RuntimeError("No human members found in the Watercooler channel.")
-
     sent_count = 0
     skipped_count = 0
     failed = []
-
     for user_id in recipients:
         try:
             existing = get_delivery(campaign_id, user_id)
             if existing and existing.get("sent_at"):
                 skipped_count += 1
                 continue
-
             delivery = create_or_get_delivery(campaign_id, user_id, campaign)
-            send_dm(
-                user_id,
-                f"{day_name.title()} Watercooler campaign",
-                build_campaign_blocks(campaign)
-            )
+            send_dm(user_id, f"{day_name.title()} Watercooler campaign", build_campaign_blocks(campaign))
             db_update("campaign_deliveries", {"id": delivery["id"]}, {
                 "sent_at": datetime.now(timezone.utc).isoformat()
             })
@@ -614,11 +647,8 @@ def send_campaign(day_name, campaign_date=None):
         except Exception as exc:
             logger.exception("Campaign delivery failed for Slack user %s", user_id)
             failed.append({"user_id": user_id, "error": str(exc)[:300]})
-
-    logger.info(
-        "Campaign %s on %s: sent=%s skipped=%s failed=%s",
-        day_name, campaign["date"], sent_count, skipped_count, len(failed)
-    )
+    logger.info("Local campaign %s %s: sent=%d skipped=%d failed=%d",
+                day_name, campaign["date"], sent_count, skipped_count, len(failed))
     return {
         "campaign_id": campaign_id,
         "activity_type": campaign["activity_type"],
@@ -628,6 +658,31 @@ def send_campaign(day_name, campaign_date=None):
         "skipped_already_sent": skipped_count,
         "failed": failed
     }
+
+
+def run_local_time_delivery(now_utc=None):
+    """Run every five minutes; deliver at local 11:00–11:09.
+
+    A ten-minute window tolerates modest scheduler delays. A unique DB constraint
+    on (campaign_id, slack_user_id) is required to prevent concurrent duplicates.
+    """
+    now_utc = now_utc or datetime.now(timezone.utc)
+    grouped = {}
+    checked = 0
+    for user_id, tz in get_recipients_with_timezones():
+        checked += 1
+        local_now = now_utc.astimezone(tz)
+        if local_now.weekday() not in (0, 4):
+            continue
+        if local_now.hour != 11 or local_now.minute >= 10:
+            continue
+        day_name = "monday" if local_now.weekday() == 0 else "friday"
+        key = (day_name, local_now.date().isoformat())
+        grouped.setdefault(key, []).append(user_id)
+    results = []
+    for (day_name, campaign_date), recipients in grouped.items():
+        results.append(send_campaign(day_name, campaign_date, recipients))
+    return {"checked_users": checked, "eligible_groups": len(grouped), "deliveries": results}
 
 
 # ============================================================
@@ -818,8 +873,9 @@ def handle_poll_vote(ack, body, action):
     if not campaign_row or campaign_row.get("activity_type") != "poll":
         return
 
-    delivery = get_delivery(campaign_id, user_id)
-    if not delivery or not delivery.get("sent_at"):
+    # Once a poll appears in #watercooler, any human channel member may vote,
+    # including colleagues whose 11 AM local DM has not arrived yet.
+    if user_id not in get_channel_members():
         return
 
     options = campaign_row.get("poll_options") or []
@@ -861,30 +917,30 @@ def health():
 
 @flask_app.route("/trigger", methods=["POST"])
 def trigger_campaign():
-    supplied_secret = request.headers.get("X-Scheduler-Secret", "")
-    logger.warning(
-        "Scheduler auth diagnostic: header_present=%s, supplied_length=%d, expected_length=%d",
-        bool(supplied_secret), len(supplied_secret), len(SCHEDULER_SECRET)
-    )
+    auth = request.authorization
+    header_secret = request.headers.get("X-Scheduler-Secret", "")
+
+    basic_secret = ""
+    if auth and auth.type.lower() == "basic" and auth.username == "watercooler-scheduler":
+        basic_secret = auth.password or ""
+
+    supplied_secret = header_secret or basic_secret
     if not hmac.compare_digest(supplied_secret, SCHEDULER_SECRET):
         return {"status": "error", "message": "Unauthorized"}, 401
 
+    # A single safe scheduler action; never allow an HTTP request to broadcast
+    # a whole campaign regardless of employee local time.
     data = request.get_json(silent=True) or {}
-    day_name = str(data.get("day", "")).lower().strip()
-    campaign_date = str(data.get("date") or datetime.now(TIMEZONE).date().isoformat())
-
-    if day_name not in ("monday", "friday"):
-        return {"status": "error", "message": "Use monday or friday."}, 400
-
+    if data.get("day") == "diagnostic":
+        return {"status": "ok", "message": "Scheduler authenticated; no campaign sent."}, 200
+    if data.get("action") != "check_local_time":
+        return {"status": "error", "message": "Use action=check_local_time."}, 400
     try:
-        result = send_campaign(day_name, campaign_date)
-        return {"status": "success", "message": f"{day_name.title()} campaign processed.", **result}, 200
+        result = run_local_time_delivery()
+        return {"status": "success", **result}, 200
     except Exception:
-        logger.exception("Production campaign trigger failed.")
-        return {
-            "status": "error",
-            "message": "Campaign could not be processed. Check Render logs."
-        }, 500
+        logger.exception("Local-time scheduler failed.")
+        return {"status": "error", "message": "Scheduler failed; check Render logs."}, 500
 
 
 # ============================================================
