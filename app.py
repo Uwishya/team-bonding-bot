@@ -554,12 +554,14 @@ def publish_or_update_channel_poll(campaign):
 
 def update_channel_poll_results(campaign_id):
     row = get_campaign_by_id(campaign_id)
-    if not row or not row.get("poll_message_ts"):
-        logger.warning("Poll message timestamp is missing for %s", campaign_id)
+    if not row:
+        logger.warning("Campaign not found for poll %s", campaign_id)
         return
     campaign = campaign_to_payload(row)
     if campaign["activity_type"] == "poll":
-        publish_or_update_channel_poll(campaign)
+        # First vote creates the channel poll; later votes update its totals.
+        with STATE_LOCK:
+            publish_or_update_channel_poll(campaign)
 
 
 # ============================================================
