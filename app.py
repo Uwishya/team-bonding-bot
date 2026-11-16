@@ -436,8 +436,11 @@ def build_campaign_blocks(campaign):
             "text": {"type": "mrkdwn", "text": (
                 "📊 *Today's poll*\n"
                 + escape_slack_text(campaign["poll"]["question"])
-                + "\n_Vote privately below. The first vote will open this poll "
-                  "in #watercooler for everyone to join._"
+                + ("\n_Your vote and name will be visible in #watercooler. "
+                   "The first vote opens the poll there._"
+                   if poll_is_public(campaign) else
+                   "\n_Vote privately below. The first vote will open this poll "
+                   "in #watercooler for everyone to join._")
             )}
         })
         blocks.append({
@@ -469,22 +472,33 @@ def build_campaign_blocks(campaign):
 # 6. POLL MESSAGE IN WATERCOOLER CHANNEL
 # ============================================================
 
-def get_poll_vote_counts(campaign_id, options):
-    result = (
-        supabase.table("poll_votes")
-        .select("option_index")
-        .eq("campaign_id", campaign_id)
-        .execute()
-    )
-    counts = [0] * len(options)
-    for vote in result.data or []:
-        try:
-            index = int(vote["option_index"])
-            if 0 <= index < len(counts):
-                counts[index] += 1
-        except (KeyError, TypeError, ValueError):
-            logger.warning("Ignoring malformed poll vote row.")
-    return counts
+# Polls created before this date promised private voting. Do not expose
+# historical choices retroactively. New campaigns display voters by name.
+PUBLIC_POLL_START_DATE = date(2026, 11, 17)
+
+
+def poll_is_public(campaign):
+    return date.fromisoformat(str(campaign["date"])) >= PUBLIC_POLL_START_DATE
+
+
+def get_poll_votes(campaign_id):
+    """Retrieve votes, including voter IDs, for the shared poll results."""
+    rows = []
+    offset = 0
+    while True:
+        result = (
+            supabase.table("poll_votes")
+            .select("option_index,slack_user_id")
+            .eq("campaign_id", campaign_id)
+            .range(offset, offset + 999)
+            .execute()
+        )
+        batch = result.data or []
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        offset += 1000
+    return rows
 
 
 def build_channel_poll_blocks(campaign):
@@ -492,14 +506,46 @@ def build_channel_poll_blocks(campaign):
     options = poll["options"]
     if not options or len(options) > 5:
         raise ValueError("Slack polls must contain between one and five options.")
-    counts = get_poll_vote_counts(campaign["campaign_id"], options)
+
+    public = poll_is_public(campaign)
+    voters_by_option = [[] for _ in options]
+    for vote in get_poll_votes(campaign["campaign_id"]):
+        try:
+            index = int(vote["option_index"])
+            if 0 <= index < len(options):
+                user_id = str(vote.get("slack_user_id") or "")
+                if user_id and re.fullmatch(r"[A-Z0-9]+", user_id):
+                    voters_by_option[index].append(user_id)
+                else:
+                    # Count malformed/missing IDs without displaying them.
+                    voters_by_option[index].append(None)
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Ignoring malformed poll vote row.")
+
+    lines = []
+    for index, option in enumerate(options):
+        voters = voters_by_option[index]
+        lines.append(
+            f"• *{escape_slack_text(option)}* — {len(voters)} "
+            f"{'vote' if len(voters) == 1 else 'votes'}"
+        )
+        if public and voters:
+            names = [f"<@{uid}>" for uid in sorted(v for v in voters if v)]
+            if names:
+                lines.append("  " + ", ".join(names))
+
+    # Slack section mrkdwn text has a 3,000-character limit.
+    results_text = "*Current results*\n" + "\n".join(lines)
+    if len(results_text) > 2900:
+        results_text = results_text[:2880] + "…"
 
     return [
         {"type": "header", "text": {"type": "plain_text", "text": "📊 WATERCOOLER POLL", "emoji": True}},
         {"type": "section", "text": {"type": "mrkdwn", "text": (
             f"*{escape_slack_text(poll['question'])}*\n"
-            "_Cast your vote below. Your individual choice is private. "
-            "You can change your vote at any time._"
+            + ("_Votes and voter names are visible to everyone. You can change your vote._"
+               if public else
+               "_Your individual choice is private. You can change your vote at any time._")
         )}},
         {"type": "actions", "elements": [
             {
@@ -510,16 +556,12 @@ def build_channel_poll_blocks(campaign):
             }
             for index, option in enumerate(options)
         ]},
-        {"type": "section", "text": {"type": "mrkdwn", "text": (
-            "*Current results*\n" + "\n".join(
-                f"• {escape_slack_text(option)} — {counts[index]} "
-                f"{'vote' if counts[index] == 1 else 'votes'}"
-                for index, option in enumerate(options)
-            )
-        )}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": results_text}},
         {"type": "context", "elements": [{
             "type": "mrkdwn",
-            "text": "Only aggregate totals are shown. Individual votes are private."
+            "text": ("Vote totals and voter names are visible to the team."
+                     if public else
+                     "Only aggregate totals are shown. Individual votes are private.")
         }]}
     ]
 
@@ -756,12 +798,12 @@ def publish_contribution(user_id, campaign, delivery, kind, contribution):
 
     if kind == "question":
         channel_text = (
-            "*Watercooler contribution:*\n\n"
+            f"*Watercooler contribution from <@{user_id}>:*\n\n"
             f"*Q:* {escape_slack_text(campaign['question'])}\n"
             f"*A:* {escape_slack_text(contribution)}"
         )
     elif kind == "shoutout":
-        channel_text = "👏 *Friday shout-out:*\n\n" + escape_slack_text(contribution)
+        channel_text = f"👏 *Friday shout-out from <@{user_id}>:*\n\n" + escape_slack_text(contribution)
     else:
         raise ValueError("Invalid contribution type.")
 
@@ -899,7 +941,9 @@ def handle_poll_vote(ack, body, action):
     send_dm(
         user_id,
         f"Your vote has been recorded: *{escape_slack_text(options[option_index])}*. "
-        "You can change your vote by choosing another option. 📊"
+        + ("Your name and choice are visible in #watercooler. "
+           if poll_is_public(campaign_to_payload(campaign_row)) else "")
+        + "You can change your vote by choosing another option. 📊"
     )
 
 
